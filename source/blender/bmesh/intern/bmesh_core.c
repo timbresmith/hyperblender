@@ -1785,8 +1785,8 @@ BMFace *bmesh_jfke(BMesh *bm, BMFace *f1, BMFace *f2, BMEdge *e)
 int BM_vert_splice(BMesh *bm, BMVert *v, BMVert *vtarget)
 {
 	BMEdge *e;
-	BMLoop *l;
-	BMIter liter;
+	BMLoop **loops;
+	int i, vfcount;
 
 	/* verts already spliced */
 	if (v == vtarget) {
@@ -1794,9 +1794,12 @@ int BM_vert_splice(BMesh *bm, BMVert *v, BMVert *vtarget)
 	}
 
 	/* retarget all the loops of v to vtarget */
-	BM_ITER_ELEM (l, &liter, v, BM_LOOPS_OF_VERT) {
-		l->v = vtarget;
-	}
+	vfcount = BM_vert_face_count(v);
+	loops = MEM_callocN(sizeof(BMLoop*) * vfcount, "loops");
+	BM_iter_as_array(bm, BM_LOOPS_OF_VERT, v, (void **)loops, vfcount);
+	for (i = 0; i < vfcount; i++)
+		loops[i]->v = vtarget;
+	MEM_freeN(loops);
 
 	/* move all the edges from v's disk to vtarget's disk */
 	while ((e = v->e)) {
