@@ -27,6 +27,7 @@ set(INC
 	.
 	../blenkernel
 	../blenloader
+	../bmesh
 	../gpu
 	../makesdna
 	../../../intern/ghost
@@ -77,6 +78,7 @@ set(SRC
 	intern/noise.c
 	intern/path_util.c
 	intern/pbvh.c
+	intern/pbvh_bmesh.c
 	intern/rand.c
 	intern/rct.c
 	intern/scanfill.c
