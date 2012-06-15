@@ -5431,6 +5431,7 @@ void drawNonPropEdge(const struct bContext *C, TransInfo *t)
 
 static int doEdgeSlide(TransInfo *t, float perc)
 {
+	BMEditMesh *em = BMEdit_FromObject(t->obedit);
 	SlideData *sld = t->customData;
 	TransDataSlideVert *svlist = sld->sv, *sv;
 	float vec[3];
@@ -5467,12 +5468,12 @@ static int doEdgeSlide(TransInfo *t, float perc)
 		if (perc > 0.0f) {
 			copy_v3_v3(vec, sv->upvec);
 			mul_v3_fl(vec, perc);
-			add_v3_v3v3(sv->v->co, sv->origvert.co, vec);
+			BM_vert_add_v3v3(em->bm, sv->v, sv->origvert.co, vec);
 		}
 		else {
 			copy_v3_v3(vec, sv->downvec);
 			mul_v3_fl(vec, -perc);
-			add_v3_v3v3(sv->v->co, sv->origvert.co, vec);
+			BM_vert_add_v3v3(em->bm, sv->v, sv->origvert.co, vec);
 		}
 	}
 	
