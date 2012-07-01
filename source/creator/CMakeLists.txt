@@ -904,6 +904,7 @@ endif()
 		cycles_util
 		cycles_subd
 		bf_intern_raskter
+		bf_intern_rangetree
 	)
 
 	if(WITH_COMPOSITOR)
