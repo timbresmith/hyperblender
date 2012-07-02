@@ -1272,6 +1272,12 @@ int main(int argc, const char **argv)
 
 	initglobals();  /* blender.c */
 
+	{
+		/* XXX: temporary testing call, remove this */
+		extern void bm_log_run_all_tests(void);
+		bm_log_run_all_tests();
+	}
+	
 	IMB_init();
 
 	BLI_callback_global_init();
