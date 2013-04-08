@@ -53,7 +53,6 @@
 
 
 static void calc_moebius_transform(Object *control, Object *target, float co[3]) {
-	float mat[4][4];	
 	float off[3];
 	float radius;
 	float leftQ[4]; 
@@ -61,11 +60,12 @@ static void calc_moebius_transform(Object *control, Object *target, float co[3])
 	float hRot[4][4];
 	float leftMat[4][4];
 	float rightMat[4][4];
-	float dist;
+	float distsq;
 	float h[4];
 	radius = 1.0f;
-	
+
 	sub_v3_v3v3(off,target->obmat[3],control->obmat[3]); //should be control.pos - target.pos
+
 	mat4_to_quat(leftQ,control->obmat);
 	mat4_to_quat(rightQ,control->obmat);
 	
@@ -76,8 +76,8 @@ static void calc_moebius_transform(Object *control, Object *target, float co[3])
 	leftMat[2][1] = leftMat[3][0] = leftQ[3];
 	leftMat[1][3] = leftMat[2][0] = leftQ[2];
 	leftMat[1][0] = leftMat[3][2] = leftQ[1];
-	
-	rightMat[0][0] = rightMat[1][1] = leftMat[2][2] = leftMat[3][3] = rightQ[0];
+
+	rightMat[0][0] = rightMat[1][1] = rightMat[2][2] = rightMat[3][3] = rightQ[0];
 	rightMat[0][1] = rightMat[3][2] = -rightQ[1];
 	rightMat[0][2] = rightMat[1][3] = -rightQ[2];
 	rightMat[0][3] = rightMat[2][1] = -rightQ[3];
@@ -92,17 +92,19 @@ static void calc_moebius_transform(Object *control, Object *target, float co[3])
 	mult_m4_m4m4(hRot,rightMat,leftMat);
 	add_v3_v3(co,off);
 	mul_v3_fl(co,1.0f/radius);
-	dist= co[0]*co[0]+co[1]*co[1]+co[2]*co[2];
-	h[0] = 2*co[0];
-	h[1] = 2*co[1];
-	h[2] = 2*co[2];
-	h[3] = dist-1.0f;
-	
-	mul_v4_fl(h,1.0f/(1.0f+dist));
+	distsq = dot_v3v3(co, co);
+
+	//distsq = len_manhattan_v3(co)*len_manhattan_v3(co); // manhattan distance
+	//distsq = pow(co[0],4)+pow(co[1],4)+pow(co[2],4);  // 4th order minkowski distance (saw this on wikipedia)
+	//distsq = sqrt(dist);
+
+	mul_v3_v3fl(h, co, 2);
+
+	h[3] = distsq-1.0f;
+
+	mul_v4_fl(h,1.0f/(1.0f+distsq));
 	mul_m4_v4(hRot,h);
-	co[0] = h[0];
-	co[1] = h[1];
-	co[2] = h[2];
+	copy_v3_v3(co,h);
 	mul_v3_fl(co,radius/(1.0f-h[3]));
 	sub_v3_v3(co,off);	
 }

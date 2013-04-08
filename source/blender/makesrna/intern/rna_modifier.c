@@ -107,6 +107,7 @@ EnumPropertyItem modifier_type_items[] = {
 	{eModifierType_Smoke, "SMOKE", ICON_MOD_SMOKE, "Smoke", ""},
 	{eModifierType_Softbody, "SOFT_BODY", ICON_MOD_SOFT, "Soft Body", ""},
 	{eModifierType_Surface, "SURFACE", ICON_MOD_PHYSICS, "Surface", ""},
+	{eModifierType_Moebius, "MOEBIUS", ICON_MOD_PHYSICS, "Moebius", ""},
 	{0, NULL, 0, NULL, NULL}
 };
 
@@ -188,6 +189,8 @@ static StructRNA *rna_Modifier_refine(struct PointerRNA *ptr)
 			return &RNA_MaskModifier;
 		case eModifierType_SimpleDeform:
 			return &RNA_SimpleDeformModifier;
+		case eModifierType_Moebius:
+			return &RNA_MoebiusModifier;
 		case eModifierType_Multires:
 			return &RNA_MultiresModifier;
 		case eModifierType_Surface:
@@ -603,6 +606,7 @@ static void rna_MeshDeformModifier_object_set(PointerRNA *ptr, PointerRNA value)
 {
 	modifier_object_set(ptr->id.data, &((MeshDeformModifierData *)ptr->data)->object, OB_MESH, value);
 }
+
 
 static void rna_ArrayModifier_end_cap_set(PointerRNA *ptr, PointerRNA value)
 {
@@ -2237,6 +2241,22 @@ static void rna_def_modifier_smoke(BlenderRNA *brna)
 	RNA_def_property_update(prop, 0, "rna_Smoke_set_type");
 }
 
+static void rna_def_modifier_moebius(BlenderRNA *brna)
+{
+	StructRNA *srna;
+	PropertyRNA *prop;
+	 
+	srna= RNA_def_struct(brna, "MoebiusModifier", "Modifier");
+	RNA_def_struct_ui_text(srna, "Moebius Modifier", "Moebius transformation");
+	RNA_def_struct_sdna(srna, "MoebiusModifierData");
+	RNA_def_struct_ui_icon(srna, ICON_MOD_PHYSICS);
+	
+	prop = RNA_def_property(srna, "control", PROP_POINTER, PROP_NONE);
+	RNA_def_property_ui_text(prop, "Control Object", "Object that defines rotation.");
+	RNA_def_property_flag(prop, PROP_EDITABLE | PROP_ID_SELF_CHECK);
+	RNA_def_property_update(prop, 0, "rna_Modifier_dependency_update");
+}
+
 static void rna_def_modifier_dynamic_paint(BlenderRNA *brna)
 {
 	StructRNA *srna;
@@ -2315,6 +2335,8 @@ static void rna_def_modifier_bevel(BlenderRNA *brna)
 	RNA_def_property_ui_text(prop, "Width", "Bevel value/amount");
 	RNA_def_property_update(prop, 0, "rna_Modifier_update");
 
+
+	
 	prop = RNA_def_property(srna, "segments", PROP_INT, PROP_NONE);
 	RNA_def_property_int_sdna(prop, NULL, "res");
 	RNA_def_property_range(prop, 1, 100);
@@ -3712,6 +3734,7 @@ void RNA_def_modifier(BlenderRNA *brna)
 	/* types */
 	rna_def_modifier_subsurf(brna);
 	rna_def_modifier_lattice(brna);
+	rna_def_modifier_moebius(brna);
 	rna_def_modifier_curve(brna);
 	rna_def_modifier_build(brna);
 	rna_def_modifier_mirror(brna);

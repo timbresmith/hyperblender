@@ -726,7 +726,13 @@ class DATA_PT_modifiers(ModifierButtonsPanel, Panel):
 
     def SMOKE(self, layout, ob, md):
         layout.label(text="Settings can be found inside the Physics context")
+    def MOEBIUS(self, layout, ob, md):
+        split = layout.split()
 
+        col = split.column()
+        col.label(text="Object:")
+        col.prop(md, "control", text="")
+        
     def SMOOTH(self, layout, ob, md):
         split = layout.split(percentage=0.25)
 

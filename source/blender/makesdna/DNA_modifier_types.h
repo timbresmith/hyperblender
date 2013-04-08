@@ -79,6 +79,7 @@ typedef enum ModifierType {
 	eModifierType_Triangulate       = 44,
 	eModifierType_UVWarp            = 45,
 	eModifierType_MeshCache         = 46,
+	eModifierType_Moebius           = 47,
 	NUM_MODIFIER_TYPES
 } ModifierType;
 
@@ -778,6 +779,11 @@ typedef struct ScrewModifierData {
 #define MOD_SCREW_OBJECT_OFFSET  (1 << 2)
 // #define MOD_SCREW_OBJECT_ANGLE	(1 << 4)
 #define MOD_SCREW_SMOOTH_SHADING (1 << 5)
+
+typedef struct MoebiusModifierData {
+	ModifierData modifier;
+	struct Object *control;
+} MoebiusModifierData;
 
 typedef struct OceanModifierData {
 	ModifierData modifier;
