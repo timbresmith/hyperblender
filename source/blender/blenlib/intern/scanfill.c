@@ -45,7 +45,6 @@
 
 /* callbacks for errors and interrupts and some goo */
 static void (*BLI_localErrorCallBack)(const char *) = NULL;
-static int (*BLI_localInterruptCallBack)(void) = NULL;
 
 /**
  * Set a function taking a (char *) as argument to flag errors. If the
@@ -56,19 +55,6 @@ static int (*BLI_localInterruptCallBack)(void) = NULL;
 void BLI_setErrorCallBack(void (*f)(const char *))
 {
 	BLI_localErrorCallBack = f;
-}
-
-/**
- * Set a function to be able to interrupt the execution of processing
- * in this module. If the function returns true, the execution will
- * terminate gracefully. If the callback is not set, interruption is
- * not possible.
- * \param f The function to use as callback
- * \attention used in creator.c
- */
-void BLI_setInterruptCallBack(int (*f)(void))
-{
-	BLI_localInterruptCallBack = f;
 }
 
 /* just flush the error to /dev/null if the error handler is missing */
@@ -721,11 +707,8 @@ static int scanfill(ScanFillContext *sf_ctx, PolyFill *pf, const int flag)
 									/* we continue searching and pick the one with sharpest corner */
 									
 									if (best_sc == NULL) {
+										/* even without holes we need to keep checking [#35861] */
 										best_sc = sc1;
-										/* only need to continue checking with holes */
-										if ((flag & BLI_SCANFILL_CALC_HOLES) == 0) {
-											break;
-										}
 									}
 									else {
 										float angle;
@@ -867,7 +850,9 @@ int BLI_scanfill_calc_ex(ScanFillContext *sf_ctx, const int flag, const float no
 	float *min_xy_p, *max_xy_p;
 	short a, c, poly = 0, ok = 0, toggle = 0;
 	int totfaces = 0; /* total faces added */
-	int co_x, co_y;
+	float mat_2d[3][3];
+
+	BLI_assert(!nor_proj || len_squared_v3(nor_proj) > FLT_EPSILON);
 
 	/* reset variables */
 	eve = sf_ctx->fillvertbase.first;
@@ -960,7 +945,7 @@ int BLI_scanfill_calc_ex(ScanFillContext *sf_ctx, const int flag, const float no
 			return 0;
 		}
 
-		axis_dominant_v3(&co_x, &co_y, n);
+		axis_dominant_v3_to_m3(mat_2d, n);
 	}
 
 
@@ -968,8 +953,7 @@ int BLI_scanfill_calc_ex(ScanFillContext *sf_ctx, const int flag, const float no
 	if (flag & BLI_SCANFILL_CALC_HOLES) {
 		eve = sf_ctx->fillvertbase.first;
 		while (eve) {
-			eve->xy[0] = eve->co[co_x];
-			eve->xy[1] = eve->co[co_y];
+			mul_v2_m3v3(eve->xy, mat_2d, eve->co);
 
 			/* get first vertex with no poly number */
 			if (eve->poly_nr == 0) {
@@ -1016,8 +1000,7 @@ int BLI_scanfill_calc_ex(ScanFillContext *sf_ctx, const int flag, const float no
 
 		eve = sf_ctx->fillvertbase.first;
 		while (eve) {
-			eve->xy[0] = eve->co[co_x];
-			eve->xy[1] = eve->co[co_y];
+			mul_v2_m3v3(eve->xy, mat_2d, eve->co);
 			eve->poly_nr = poly;
 			eve = eve->next;
 		}

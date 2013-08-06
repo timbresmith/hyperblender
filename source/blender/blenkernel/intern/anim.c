@@ -65,7 +65,7 @@
 #include "BKE_object.h"
 #include "BKE_particle.h"
 #include "BKE_scene.h"
-#include "BKE_tessmesh.h"
+#include "BKE_editmesh.h"
 #include "BKE_depsgraph.h"
 #include "BKE_anim.h"
 #include "BKE_report.h"
@@ -626,6 +626,7 @@ int where_on_path(Object *ob, float ctime, float vec[4], float dir[3], float qua
 	float fac;
 	float data[4];
 	int cycl = 0, s0, s1, s2, s3;
+	ListBase *nurbs;
 
 	if (ob == NULL || ob->type != OB_CURVE) return 0;
 	cu = ob->data;
@@ -668,8 +669,11 @@ int where_on_path(Object *ob, float ctime, float vec[4], float dir[3], float qua
 	/* make compatible with vectoquat */
 	negate_v3(dir);
 	//}
-	
-	nu = cu->nurb.first;
+
+	nurbs = BKE_curve_editNurbs_get(cu);
+	if (!nurbs)
+		nurbs = &cu->nurb;
+	nu = nurbs->first;
 
 	/* make sure that first and last frame are included in the vectors here  */
 	if (nu->type == CU_POLY) key_curve_position_weights(1.0f - fac, data, KEY_LINEAR);
@@ -780,10 +784,10 @@ static void group_duplilist(ListBase *lb, Scene *scene, Object *ob, int persiste
 			if (!is_zero_v3(group->dupli_ofs)) {
 				copy_m4_m4(tmat, go->ob->obmat);
 				sub_v3_v3v3(tmat[3], tmat[3], group->dupli_ofs);
-				mult_m4_m4m4(mat, ob->obmat, tmat);
+				mul_m4_m4m4(mat, ob->obmat, tmat);
 			}
 			else {
-				mult_m4_m4m4(mat, ob->obmat, go->ob->obmat);
+				mul_m4_m4m4(mat, ob->obmat, go->ob->obmat);
 			}
 			
 			dob = new_dupli_object(lb, go->ob, mat, ob->lay, persistent_id, level, id, OB_DUPLIGROUP, flag);
@@ -960,7 +964,7 @@ static void vertex_duplilist(ListBase *lb, ID *id, Scene *scene, Object *par, fl
 	/* simple preventing of too deep nested groups */
 	if (level > MAX_DUPLI_RECUR) return;
 	
-	em = BMEdit_FromObject(par);
+	em = BKE_editmesh_from_object(par);
 	
 	/* get derived mesh */
 	dm_mask = CD_MASK_BAREMESH;
@@ -1014,7 +1018,7 @@ static void vertex_duplilist(ListBase *lb, ID *id, Scene *scene, Object *par, fl
 					 * when par_space_mat is NULL ob->obmat can be used instead of ob__obmat
 					 */
 					if (par_space_mat)
-						mult_m4_m4m4(vdd.obmat, par_space_mat, ob->obmat);
+						mul_m4_m4m4(vdd.obmat, par_space_mat, ob->obmat);
 					else
 						copy_m4_m4(vdd.obmat, ob->obmat);
 
@@ -1032,7 +1036,7 @@ static void vertex_duplilist(ListBase *lb, ID *id, Scene *scene, Object *par, fl
 					if (ob->type != OB_MBALL) ob->flag |= OB_DONE;  /* doesnt render */
 
 					if (me->edit_btmesh) {
-						dm->foreachMappedVert(dm, vertex_dupli__mapFunc, (void *) &vdd);
+						dm->foreachMappedVert(dm, vertex_dupli__mapFunc, (void *) &vdd, DM_FOREACH_USE_NORMAL);
 					}
 					else {
 						for (a = 0; a < totvert; a++) {
@@ -1087,7 +1091,7 @@ static void face_duplilist(ListBase *lb, ID *id, Scene *scene, Object *par, floa
 	if (level > MAX_DUPLI_RECUR) return;
 	
 	copy_m4_m4(pmat, par->obmat);
-	em = BMEdit_FromObject(par);
+	em = BKE_editmesh_from_object(par);
 
 	/* get derived mesh */
 	dm_mask = CD_MASK_BAREMESH;
@@ -1149,7 +1153,7 @@ static void face_duplilist(ListBase *lb, ID *id, Scene *scene, Object *par, floa
 					 * when par_space_mat is NULL ob->obmat can be used instead of ob__obmat
 					 */
 					if (par_space_mat)
-						mult_m4_m4m4(ob__obmat, par_space_mat, ob->obmat);
+						mul_m4_m4m4(ob__obmat, par_space_mat, ob->obmat);
 					else
 						copy_m4_m4(ob__obmat, ob->obmat);
 					
@@ -1467,10 +1471,10 @@ static void new_particle_duplilist(ListBase *lb, ID *id, Scene *scene, Object *p
 					if (!is_zero_v3(part->dup_group->dupli_ofs))
 						sub_v3_v3v3(tmat[3], tmat[3], part->dup_group->dupli_ofs);
 					/* individual particle transform */
-					mult_m4_m4m4(tmat, pamat, tmat);
+					mul_m4_m4m4(tmat, pamat, tmat);
 
 					if (par_space_mat)
-						mult_m4_m4m4(mat, par_space_mat, tmat);
+						mul_m4_m4m4(mat, par_space_mat, tmat);
 					else
 						copy_m4_m4(mat, tmat);
 
@@ -1510,7 +1514,7 @@ static void new_particle_duplilist(ListBase *lb, ID *id, Scene *scene, Object *p
 					
 					/* add scaling if requested */
 					if ((part->draw & PART_DRAW_NO_SCALE_OB) == 0)
-						mult_m4_m4m4(obmat, obmat, size_mat);
+						mul_m4_m4m4(obmat, obmat, size_mat);
 				}
 				else if (part->draw & PART_DRAW_NO_SCALE_OB) {
 					/* remove scaling */
@@ -1520,22 +1524,22 @@ static void new_particle_duplilist(ListBase *lb, ID *id, Scene *scene, Object *p
 					size_to_mat4(size_mat, original_size);
 					invert_m4(size_mat);
 
-					mult_m4_m4m4(obmat, obmat, size_mat);
+					mul_m4_m4m4(obmat, obmat, size_mat);
 				}
 				
 				/* Normal particles and cached hair live in global space so we need to
 				 * remove the real emitter's transformation before 2nd order duplication.
 				 */
 				if (par_space_mat && GS(id->name) != ID_GR)
-					mult_m4_m4m4(mat, psys->imat, pamat);
+					mul_m4_m4m4(mat, psys->imat, pamat);
 				else
 					copy_m4_m4(mat, pamat);
 
-				mult_m4_m4m4(tmat, mat, obmat);
+				mul_m4_m4m4(tmat, mat, obmat);
 				mul_mat3_m4_fl(tmat, size * scale);
 
 				if (par_space_mat)
-					mult_m4_m4m4(mat, par_space_mat, tmat);
+					mul_m4_m4m4(mat, par_space_mat, tmat);
 				else
 					copy_m4_m4(mat, tmat);
 
@@ -1720,8 +1724,11 @@ ListBase *object_duplilist_ex(Scene *sce, Object *ob, bool update, bool for_rend
 	int persistent_id[MAX_DUPLI_RECUR] = {0};
 	int flag = 0;
 
-	if (update)     flag |= DUPLILIST_DO_UPDATE;
-	if (for_render) flag |= DUPLILIST_FOR_RENDER;
+	/* don't allow BKE_object_handle_update for viewport during render, can crash */
+	if (update && !(G.is_rendering && !for_render))
+		flag |= DUPLILIST_DO_UPDATE;
+	if (for_render)
+		flag |= DUPLILIST_FOR_RENDER;
 
 	duplilist->first = duplilist->last = NULL;
 	object_duplilist_recursive((ID *)sce, sce, ob, duplilist, NULL, persistent_id, 0, 0, flag);

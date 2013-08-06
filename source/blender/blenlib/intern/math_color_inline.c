@@ -78,7 +78,7 @@ MINLINE void linearrgb_to_srgb_uchar4(unsigned char srgb[4], const float linear[
 	F4TOCHAR4(srgb_f, srgb);
 }
 
-/* predivide versions to work on associated/pre-multipled alpha. if this should
+/* predivide versions to work on associated/pre-multiplied alpha. if this should
  * be done or not depends on the background the image will be composited over,
  * ideally you would never do color space conversion on an image with alpha
  * because it is ill defined */
@@ -309,8 +309,8 @@ MINLINE void straight_to_premul_v4(float color[4])
 
 MINLINE void straight_uchar_to_premul_float(float result[4], const unsigned char color[4])
 {
-	float alpha = color[3] / 255.0f;
-	float fac = alpha / 255.0f;
+	float alpha = color[3] * (1.0f / 255.0f);
+	float fac = alpha * (1.0f / 255.0f);
 
 	result[0] = color[0] * fac;
 	result[1] = color[1] * fac;

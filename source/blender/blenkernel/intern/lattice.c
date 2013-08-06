@@ -62,6 +62,25 @@
 
 #include "BKE_deform.h"
 
+int BKE_lattice_index_from_uvw(struct Lattice *lt,
+                               const int u, const int v, const int w)
+{
+	const int totu = lt->pntsu;
+	const int totv = lt->pntsv;
+
+	return (w * (totu * totv) + (v * totu) + u);
+}
+
+void BKE_lattice_index_to_uvw(struct Lattice *lt, const int index,
+                              int *r_u, int *r_v, int *r_w)
+{
+	const int totu = lt->pntsu;
+	const int totv = lt->pntsv;
+
+	*r_u = (index % totu);
+	*r_v = (index / totu) % totv;
+	*r_w = (index / (totu * totv));
+}
 
 void calc_lat_fudu(int flag, int res, float *r_fu, float *r_du)
 {
@@ -168,6 +187,7 @@ void BKE_lattice_resize(Lattice *lt, int uNew, int vNew, int wNew, Object *ltOb)
 	lt->pntsv = vNew;
 	lt->pntsw = wNew;
 
+	lt->actbp = LT_ACTBP_NONE;
 	MEM_freeN(lt->def);
 	lt->def = MEM_callocN(lt->pntsu * lt->pntsv * lt->pntsw * sizeof(BPoint), "lattice bp");
 	
@@ -192,6 +212,7 @@ Lattice *BKE_lattice_add(Main *bmain, const char *name)
 	
 	lt->def = MEM_callocN(sizeof(BPoint), "lattvert"); /* temporary */
 	BKE_lattice_resize(lt, 2, 2, 2, NULL);  /* creates a uniform lattice */
+	lt->actbp = LT_ACTBP_NONE;
 		
 	return lt;
 }
@@ -312,7 +333,7 @@ void init_latt_deform(Object *oblatt, Object *ob)
 	else {
 		/* in deformspace, calc matrix */
 		invert_m4_m4(imat, oblatt->obmat);
-		mult_m4_m4m4(lt->latmat, imat, ob->obmat);
+		mul_m4_m4m4(lt->latmat, imat, ob->obmat);
 	
 		/* back: put in deform array */
 		invert_m4_m4(imat, lt->latmat);
@@ -473,7 +494,7 @@ typedef struct {
 static void init_curve_deform(Object *par, Object *ob, CurveDeform *cd)
 {
 	invert_m4_m4(ob->imat, ob->obmat);
-	mult_m4_m4m4(cd->objectspace, ob->imat, par->obmat);
+	mul_m4_m4m4(cd->objectspace, ob->imat, par->obmat);
 	invert_m4_m4(cd->curvespace, cd->objectspace);
 	copy_m3_m4(cd->objectspace3, cd->objectspace);
 	cd->no_rot_axis = 0;
@@ -660,7 +681,7 @@ void curve_deform_verts(Scene *scene, Object *cuOb, Object *target,
 	 * we want either a Mesh with no derived data, or derived data with
 	 * deformverts
 	 */
-	if (target && target->type == OB_MESH) {
+	if (target->type == OB_MESH) {
 		/* if there's derived data without deformverts, don't use vgroups */
 		if (dm) {
 			use_vgroups = (dm->getVertData(dm, 0, CD_MDEFORMVERT) != NULL);
@@ -865,7 +886,7 @@ int object_deform_mball(Object *ob, ListBase *dispbase)
 
 static BPoint *latt_bp(Lattice *lt, int u, int v, int w)
 {
-	return &lt->def[LT_INDEX(lt, u, v, w)];
+	return &lt->def[BKE_lattice_index_from_uvw(lt, u, v, w)];
 }
 
 void outside_lattice(Lattice *lt)
@@ -1010,6 +1031,24 @@ struct MDeformVert *BKE_lattice_deform_verts_get(struct Object *oblatt)
 	BLI_assert(oblatt->type == OB_LATTICE);
 	if (lt->editlatt) lt = lt->editlatt->latt;
 	return lt->dvert;
+}
+
+struct BPoint *BKE_lattice_active_point_get(Lattice *lt)
+{
+	BLI_assert(GS(lt->id.name) == ID_LT);
+
+	if (lt->editlatt) {
+		lt = lt->editlatt->latt;
+	}
+
+	BLI_assert(lt->actbp < lt->pntsu * lt->pntsv * lt->pntsw);
+
+	if ((lt->actbp != LT_ACTBP_NONE) && (lt->actbp < lt->pntsu * lt->pntsv * lt->pntsw)) {
+		return &lt->def[lt->actbp];
+	}
+	else {
+		return NULL;
+	}
 }
 
 void BKE_lattice_center_median(struct Lattice *lt, float cent[3])

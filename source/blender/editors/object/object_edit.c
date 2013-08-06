@@ -41,7 +41,6 @@
 #include "BLI_math.h"
 #include "BLI_utildefines.h"
 #include "BLI_ghash.h"
-#include "BLI_rand.h"
 
 #include "DNA_armature_types.h"
 #include "DNA_curve_types.h"
@@ -79,7 +78,7 @@
 #include "BKE_sca.h"
 #include "BKE_softbody.h"
 #include "BKE_modifier.h"
-#include "BKE_tessmesh.h"
+#include "BKE_editmesh.h"
 
 #include "ED_armature.h"
 #include "ED_curve.h"
@@ -383,6 +382,11 @@ void ED_object_editmode_exit(bContext *C, int flag)
 	if (flag & EM_WAITCURSOR) waitcursor(1);
 
 	if (ED_object_editmode_load_ex(obedit, freedata) == false) {
+		/* in rare cases (background mode) its possible active object
+		 * is flagged for editmode, without 'obedit' being set [#35489] */
+		if (UNLIKELY(scene->basact && (scene->basact->object->mode & OB_MODE_EDIT))) {
+			scene->basact->object->mode &= ~OB_MODE_EDIT;
+		}
 		if (flag & EM_WAITCURSOR) waitcursor(0);
 		return;
 	}
@@ -474,13 +478,13 @@ void ED_object_editmode_enter(bContext *C, int flag)
 		ok = 1;
 		scene->obedit = ob;  /* context sees this */
 
-		EDBM_mesh_make(CTX_data_tool_settings(C), scene, ob);
+		EDBM_mesh_make(scene->toolsettings, ob);
 
-		em = BMEdit_FromObject(ob);
+		em = BKE_editmesh_from_object(ob);
 		if (LIKELY(em)) {
 			/* order doesn't matter */
 			EDBM_mesh_normals_update(em);
-			BMEdit_RecalcTessellation(em);
+			BKE_editmesh_tessface_calc(em);
 
 			BM_mesh_select_mode_flush(em->bm);
 		}
@@ -1350,7 +1354,7 @@ void OBJECT_OT_shade_flat(wmOperatorType *ot)
 {
 	/* identifiers */
 	ot->name = "Shade Flat";
-	ot->description = "Display faces 'flat'";
+	ot->description = "Render and display faces uniform, using Face Normals";
 	ot->idname = "OBJECT_OT_shade_flat";
 	
 	/* api callbacks */
@@ -1365,7 +1369,7 @@ void OBJECT_OT_shade_smooth(wmOperatorType *ot)
 {
 	/* identifiers */
 	ot->name = "Shade Smooth";
-	ot->description = "Display faces 'smooth' (using vertex normals)";
+	ot->description = "Render and display faces smooth, using interpolated Vertex Normals";
 	ot->idname = "OBJECT_OT_shade_smooth";
 	
 	/* api callbacks */
@@ -1439,31 +1443,34 @@ static void UNUSED_FUNCTION(image_aspect) (Scene *scene, View3D *v3d)
 	
 }
 
-
 static EnumPropertyItem *object_mode_set_itemsf(bContext *C, PointerRNA *UNUSED(ptr), PropertyRNA *UNUSED(prop), int *free)
-{	
+{
 	EnumPropertyItem *input = object_mode_items;
 	EnumPropertyItem *item = NULL;
 	Object *ob;
 	int totitem = 0;
-	
+
 	if (!C) /* needed for docs */
 		return object_mode_items;
 
-
-
 	ob = CTX_data_active_object(C);
-	while (ob && input->identifier) {
-		if ((input->value == OB_MODE_EDIT && OB_TYPE_SUPPORT_EDITMODE(ob->type)) ||
-		    (input->value == OB_MODE_POSE && (ob->type == OB_ARMATURE)) ||
-		    (input->value == OB_MODE_PARTICLE_EDIT && ob->particlesystem.first) ||
-		    ((input->value == OB_MODE_SCULPT || input->value == OB_MODE_VERTEX_PAINT ||
-		      input->value == OB_MODE_WEIGHT_PAINT || input->value == OB_MODE_TEXTURE_PAINT) && (ob->type == OB_MESH)) ||
-		    (input->value == OB_MODE_OBJECT))
-		{
-			RNA_enum_item_add(&item, &totitem, input);
+	if (ob) {
+		while (input->identifier) {
+			if ((input->value == OB_MODE_EDIT && OB_TYPE_SUPPORT_EDITMODE(ob->type)) ||
+			    (input->value == OB_MODE_POSE && (ob->type == OB_ARMATURE)) ||
+			    (input->value == OB_MODE_PARTICLE_EDIT && ob->particlesystem.first) ||
+			    ((input->value == OB_MODE_SCULPT || input->value == OB_MODE_VERTEX_PAINT ||
+			      input->value == OB_MODE_WEIGHT_PAINT || input->value == OB_MODE_TEXTURE_PAINT) && (ob->type == OB_MESH)) ||
+			    (input->value == OB_MODE_OBJECT))
+			{
+				RNA_enum_item_add(&item, &totitem, input);
+			}
+			input++;
 		}
-		input++;
+	}
+	else {
+		/* We need at least this one! */
+		RNA_enum_items_add_value(&item, &totitem, input, OB_MODE_OBJECT);
 	}
 
 	RNA_enum_item_end(&item, &totitem);
@@ -1494,36 +1501,38 @@ static const char *object_mode_op_string(int mode)
 
 /* checks the mode to be set is compatible with the object
  * should be made into a generic function */
-static int object_mode_set_compat(bContext *UNUSED(C), wmOperator *op, Object *ob)
+static bool object_mode_set_compat(bContext *UNUSED(C), wmOperator *op, Object *ob)
 {
 	ObjectMode mode = RNA_enum_get(op->ptr, "mode");
 
 	if (ob) {
 		if (mode == OB_MODE_OBJECT)
-			return 1;
+			return true;
 
 		switch (ob->type) {
 			case OB_MESH:
 				if (mode & (OB_MODE_EDIT | OB_MODE_SCULPT | OB_MODE_VERTEX_PAINT | OB_MODE_WEIGHT_PAINT | OB_MODE_TEXTURE_PAINT | OB_MODE_PARTICLE_EDIT))
-					return 1;
-				return 0;
+					return true;
+				break;
 			case OB_CURVE:
 			case OB_SURF:
 			case OB_FONT:
 			case OB_MBALL:
 				if (mode & (OB_MODE_EDIT))
-					return 1;
-				return 0;
+					return true;
+				break;
 			case OB_LATTICE:
 				if (mode & (OB_MODE_EDIT | OB_MODE_WEIGHT_PAINT))
-					return 1;
+					return true;
+				break;
 			case OB_ARMATURE:
 				if (mode & (OB_MODE_EDIT | OB_MODE_POSE))
-					return 1;
+					return true;
+				break;
 		}
 	}
 
-	return 0;
+	return false;
 }
 
 static int object_mode_set_exec(bContext *C, wmOperator *op)
@@ -1560,8 +1569,6 @@ static int object_mode_set_exec(bContext *C, wmOperator *op)
 
 void OBJECT_OT_mode_set(wmOperatorType *ot)
 {
-	PropertyRNA *prop;
-
 	/* identifiers */
 	ot->name = "Set Object Mode";
 	ot->description = "Sets the object interaction mode";
@@ -1575,8 +1582,8 @@ void OBJECT_OT_mode_set(wmOperatorType *ot)
 	/* flags */
 	ot->flag = 0; /* no register/undo here, leave it to operators being called */
 	
-	prop = RNA_def_enum(ot->srna, "mode", object_mode_items, OB_MODE_OBJECT, "Mode", "");
-	RNA_def_enum_funcs(prop, object_mode_set_itemsf);
+	ot->prop = RNA_def_enum(ot->srna, "mode", object_mode_items, OB_MODE_OBJECT, "Mode", "");
+	RNA_def_enum_funcs(ot->prop, object_mode_set_itemsf);
 
 	RNA_def_boolean(ot->srna, "toggle", 0, "Toggle", "");
 }
@@ -1603,7 +1610,7 @@ void ED_object_toggle_modes(bContext *C, int mode)
 
 /************************ Game Properties ***********************/
 
-static int game_property_new(bContext *C, wmOperator *op)
+static int game_property_new_exec(bContext *C, wmOperator *op)
 {
 	Object *ob = CTX_data_active_object(C);
 	bProperty *prop;
@@ -1633,7 +1640,7 @@ void OBJECT_OT_game_property_new(wmOperatorType *ot)
 	ot->idname = "OBJECT_OT_game_property_new";
 
 	/* api callbacks */
-	ot->exec = game_property_new;
+	ot->exec = game_property_new_exec;
 	ot->poll = ED_operator_object_active_editable;
 
 	/* flags */
@@ -1643,7 +1650,7 @@ void OBJECT_OT_game_property_new(wmOperatorType *ot)
 	RNA_def_string(ot->srna, "name", "", MAX_NAME, "Name", "Name of the game property to add");
 }
 
-static int game_property_remove(bContext *C, wmOperator *op)
+static int game_property_remove_exec(bContext *C, wmOperator *op)
 {
 	Object *ob = CTX_data_active_object(C);
 	bProperty *prop;
@@ -1674,7 +1681,7 @@ void OBJECT_OT_game_property_remove(wmOperatorType *ot)
 	ot->idname = "OBJECT_OT_game_property_remove";
 
 	/* api callbacks */
-	ot->exec = game_property_remove;
+	ot->exec = game_property_remove_exec;
 	ot->poll = ED_operator_object_active_editable;
 
 	/* flags */

@@ -74,7 +74,7 @@ void SVMShaderManager::device_update(Device *device, DeviceScene *dscene, Scene 
 
 		assert(shader->graph);
 
-		if(shader->sample_as_light && shader->has_surface_emission)
+		if(shader->use_mis && shader->has_surface_emission)
 			scene->light_manager->need_update = true;
 
 		SVMCompiler compiler(scene->shader_manager, scene->image_manager,
@@ -124,23 +124,28 @@ SVMCompiler::SVMCompiler(ShaderManager *shader_manager_, ImageManager *image_man
 
 int SVMCompiler::stack_size(ShaderSocketType type)
 {
-	if(type == SHADER_SOCKET_FLOAT)
-		return 1;
-	else if(type == SHADER_SOCKET_INT)
-		return 1;
-	else if(type == SHADER_SOCKET_COLOR)
-		return 3;
-	else if(type == SHADER_SOCKET_VECTOR)
-		return 3;
-	else if(type == SHADER_SOCKET_NORMAL)
-		return 3;
-	else if(type == SHADER_SOCKET_POINT)
-		return 3;
-	else if(type == SHADER_SOCKET_CLOSURE)
-		return 0;
-
-	assert(0);
-	return 0;
+	int size = 0;
+	
+	switch (type) {
+		case SHADER_SOCKET_FLOAT:
+		case SHADER_SOCKET_INT:
+			size = 1;
+			break;
+		case SHADER_SOCKET_COLOR:
+		case SHADER_SOCKET_VECTOR:
+		case SHADER_SOCKET_NORMAL:
+		case SHADER_SOCKET_POINT:
+			size = 3;
+			break;
+		case SHADER_SOCKET_CLOSURE:
+			size = 0;
+			break;
+		default:
+			assert(0);
+			break;
+	}
+	
+	return size;
 }
 
 int SVMCompiler::stack_find_offset(ShaderSocketType type)
@@ -393,6 +398,10 @@ void SVMCompiler::generate_svm_nodes(const set<ShaderNode*>& nodes, set<ShaderNo
 							inputs_done = false;
 
 				if(inputs_done) {
+					/* Detect if we have a blackbody converter, to prepare lookup table */
+					if(node->has_converter_blackbody())
+					current_shader->has_converter_blackbody = true;
+
 					node->compile(*this);
 					stack_clear_users(node, done);
 					stack_clear_temporary(node);
@@ -581,14 +590,20 @@ void SVMCompiler::compile_type(Shader *shader, ShaderGraph *graph, ShaderType ty
 	ShaderNode *node = graph->output();
 	ShaderInput *clin = NULL;
 	
-	if(type == SHADER_TYPE_SURFACE)
-		clin = node->input("Surface");
-	else if(type == SHADER_TYPE_VOLUME)
-		clin = node->input("Volume");
-	else if(type == SHADER_TYPE_DISPLACEMENT)
-		clin = node->input("Displacement");
-	else
-		assert(0);
+	switch (type) {
+		case SHADER_TYPE_SURFACE:
+			clin = node->input("Surface");
+			break;
+		case SHADER_TYPE_VOLUME:
+			clin = node->input("Volume");
+			break;
+		case SHADER_TYPE_DISPLACEMENT:
+			clin = node->input("Displacement");
+			break;
+		default:
+			assert(0);
+			break;
+	}
 
 	/* clear all compiler state */
 	memset(&active_stack, 0, sizeof(active_stack));
@@ -604,20 +619,22 @@ void SVMCompiler::compile_type(Shader *shader, ShaderGraph *graph, ShaderType ty
 	if(shader->used) {
 		if(clin->link) {
 			bool generate = false;
-			if(type == SHADER_TYPE_SURFACE) {
-				/* generate surface shader */
-				generate = true;
-				shader->has_surface = true;
-			}
-			else if(type == SHADER_TYPE_VOLUME) {
-				/* generate volume shader */
-				generate = true;
-				shader->has_volume = true;
-			}
-			else if(type == SHADER_TYPE_DISPLACEMENT) {
-				/* generate displacement shader */
-				generate = true;
-				shader->has_displacement = true;
+			
+			switch (type) {
+				case SHADER_TYPE_SURFACE: /* generate surface shader */		
+					generate = true;
+					shader->has_surface = true;
+					break;
+				case SHADER_TYPE_VOLUME: /* generate volume shader */
+					generate = true;
+					shader->has_volume = true;
+					break;
+				case SHADER_TYPE_DISPLACEMENT: /* generate displacement shader */
+					generate = true;
+					shader->has_displacement = true;
+					break;
+				default:
+					break;
 			}
 
 			if(generate) {
@@ -659,6 +676,7 @@ void SVMCompiler::compile(Shader *shader, vector<int4>& global_svm_nodes, int in
 	shader->has_surface_emission = false;
 	shader->has_surface_transparent = false;
 	shader->has_surface_bssrdf = false;
+	shader->has_converter_blackbody = false;
 	shader->has_volume = false;
 	shader->has_displacement = false;
 

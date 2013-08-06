@@ -37,7 +37,7 @@
 
 #include "BLI_utildefines.h"
 
-#include "BLO_sys_types.h"
+#include "BLI_sys_types.h"
 
 #include "DNA_listBase.h"
 #include "DNA_userdef_types.h" 
@@ -107,7 +107,9 @@ static BCursor *BlenderCursor[BC_NUMCURSORS]; /*Points to static BCursor Structs
 void WM_cursor_set(wmWindow *win, int curs)
 {
 
-	if (win == NULL) return;  /* Can't set custom cursor before Window init */
+	if (win == NULL || G.background) {
+		return;  /* Can't set custom cursor before Window init */
+	}
 
 	if (curs == CURSOR_NONE) {
 		GHOST_SetCursorVisibility(win->ghostwin, 0);

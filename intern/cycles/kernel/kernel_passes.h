@@ -86,6 +86,33 @@ __device_inline void kernel_write_data_passes(KernelGlobals *kg, __global float 
 		L->color_glossy += shader_bsdf_glossy(kg, sd)*throughput;
 	if(flag & (PASS_TRANSMISSION_INDIRECT|PASS_TRANSMISSION_COLOR|PASS_TRANSMISSION_DIRECT))
 		L->color_transmission += shader_bsdf_transmission(kg, sd)*throughput;
+	if(flag & (PASS_SUBSURFACE_INDIRECT|PASS_SUBSURFACE_COLOR|PASS_SUBSURFACE_DIRECT))
+		L->color_subsurface += shader_bsdf_subsurface(kg, sd)*throughput;
+
+	if(flag & PASS_MIST) {
+		/* bring depth into 0..1 range */
+		float mist_start = kernel_data.film.mist_start;
+		float mist_inv_depth = kernel_data.film.mist_inv_depth;
+
+		float depth = camera_distance(kg, sd->P);
+		float mist = clamp((depth - mist_start)*mist_inv_depth, 0.0f, 1.0f);
+
+		/* falloff */
+		float mist_falloff = kernel_data.film.mist_falloff;
+
+		if(mist_falloff == 1.0f)
+			;
+		else if(mist_falloff == 2.0f)
+			mist = mist*mist;
+		else if(mist_falloff == 0.5f)
+			mist = sqrtf(mist);
+		else
+			mist = powf(mist, mist_falloff);
+
+		/* modulate by transparency */
+		float3 alpha = throughput*(make_float3(1.0f, 1.0f, 1.0f) - shader_bsdf_transparency(kg, sd));
+		L->mist += (1.0f - mist)*average(alpha);
+	}
 #endif
 }
 
@@ -103,12 +130,16 @@ __device_inline void kernel_write_light_passes(KernelGlobals *kg, __global float
 		kernel_write_pass_float3(buffer + kernel_data.film.pass_glossy_indirect, sample, L->indirect_glossy);
 	if(flag & PASS_TRANSMISSION_INDIRECT)
 		kernel_write_pass_float3(buffer + kernel_data.film.pass_transmission_indirect, sample, L->indirect_transmission);
+	if(flag & PASS_SUBSURFACE_INDIRECT)
+		kernel_write_pass_float3(buffer + kernel_data.film.pass_subsurface_indirect, sample, L->indirect_subsurface);
 	if(flag & PASS_DIFFUSE_DIRECT)
 		kernel_write_pass_float3(buffer + kernel_data.film.pass_diffuse_direct, sample, L->direct_diffuse);
 	if(flag & PASS_GLOSSY_DIRECT)
 		kernel_write_pass_float3(buffer + kernel_data.film.pass_glossy_direct, sample, L->direct_glossy);
 	if(flag & PASS_TRANSMISSION_DIRECT)
 		kernel_write_pass_float3(buffer + kernel_data.film.pass_transmission_direct, sample, L->direct_transmission);
+	if(flag & PASS_SUBSURFACE_DIRECT)
+		kernel_write_pass_float3(buffer + kernel_data.film.pass_subsurface_direct, sample, L->direct_subsurface);
 
 	if(flag & PASS_EMISSION)
 		kernel_write_pass_float3(buffer + kernel_data.film.pass_emission, sample, L->emission);
@@ -123,11 +154,15 @@ __device_inline void kernel_write_light_passes(KernelGlobals *kg, __global float
 		kernel_write_pass_float3(buffer + kernel_data.film.pass_glossy_color, sample, L->color_glossy);
 	if(flag & PASS_TRANSMISSION_COLOR)
 		kernel_write_pass_float3(buffer + kernel_data.film.pass_transmission_color, sample, L->color_transmission);
+	if(flag & PASS_SUBSURFACE_COLOR)
+		kernel_write_pass_float3(buffer + kernel_data.film.pass_subsurface_color, sample, L->color_subsurface);
 	if(flag & PASS_SHADOW) {
 		float4 shadow = L->shadow;
 		shadow.w = kernel_data.film.pass_shadow_scale;
 		kernel_write_pass_float4(buffer + kernel_data.film.pass_shadow, sample, shadow);
 	}
+	if(flag & PASS_MIST)
+		kernel_write_pass_float(buffer + kernel_data.film.pass_mist, sample, 1.0f - L->mist);
 #endif
 }
 

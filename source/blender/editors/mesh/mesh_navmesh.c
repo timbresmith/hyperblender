@@ -43,7 +43,7 @@
 #include "BKE_scene.h"
 #include "BKE_DerivedMesh.h"
 #include "BKE_report.h"
-#include "BKE_tessmesh.h"
+#include "BKE_editmesh.h"
 
 #include "ED_object.h"
 #include "ED_mesh.h"
@@ -332,7 +332,7 @@ static Object *createRepresentation(bContext *C, struct recast_polyMesh *pmesh, 
 	}
 
 	ED_object_editmode_enter(C, EM_DO_UNDO | EM_IGNORE_LAYER);
-	em = BMEdit_FromObject(obedit);
+	em = BKE_editmesh_from_object(obedit);
 
 	if (!createob) {
 		/* clear */
@@ -384,7 +384,8 @@ static Object *createRepresentation(bContext *C, struct recast_polyMesh *pmesh, 
 			BM_vert_create(em->bm, co, NULL, 0);
 		}
 
-		EDBM_index_arrays_ensure(em, BM_VERT);
+		/* need to rebuild entirely because array size changes */
+		EDBM_index_arrays_init(em, BM_VERT);
 
 		/* create faces */
 		for (j = 0; j < trinum; j++) {
@@ -498,10 +499,10 @@ void MESH_OT_navmesh_make(wmOperatorType *ot)
 static int navmesh_face_copy_exec(bContext *C, wmOperator *op)
 {
 	Object *obedit = CTX_data_edit_object(C);
-	BMEditMesh *em = BMEdit_FromObject(obedit);
+	BMEditMesh *em = BKE_editmesh_from_object(obedit);
 
 	/* do work here */
-	BMFace *efa_act = BM_active_face_get(em->bm, false, false);
+	BMFace *efa_act = BM_mesh_active_face_get(em->bm, false, false);
 
 	if (efa_act) {
 		if (CustomData_has_layer(&em->bm->pdata, CD_RECAST)) {
@@ -586,7 +587,7 @@ static int findFreeNavPolyIndex(BMEditMesh *em)
 static int navmesh_face_add_exec(bContext *C, wmOperator *UNUSED(op))
 {
 	Object *obedit = CTX_data_edit_object(C);
-	BMEditMesh *em = BMEdit_FromObject(obedit);
+	BMEditMesh *em = BKE_editmesh_from_object(obedit);
 	BMFace *ef;
 	BMIter iter;
 	

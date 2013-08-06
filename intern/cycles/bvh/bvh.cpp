@@ -32,6 +32,7 @@
 #include "util_progress.h"
 #include "util_system.h"
 #include "util_types.h"
+#include "util_math.h"
 
 CCL_NAMESPACE_BEGIN
 
@@ -251,7 +252,7 @@ void BVH::pack_triangle(int idx, float4 woop[3])
 	float3 r1 = v1 - v2;
 	float3 r2 = cross(r0, r1);
 
-	if(dot(r0, r0) == 0.0f || dot(r1, r1) == 0.0f || dot(r2, r2) == 0.0f) {
+	if(is_zero(r0) || is_zero(r1) || is_zero(r2)) {
 		/* degenerate */
 		woop[0] = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
 		woop[1] = make_float4(0.0f, 0.0f, 0.0f, 0.0f);
@@ -341,6 +342,9 @@ void BVH::pack_primitives()
 			int tob = pack.prim_object[i];
 			Object *ob = objects[tob];
 			pack.prim_visibility[i] = ob->visibility;
+
+			if(pack.prim_segment[i] != ~0)
+				pack.prim_visibility[i] |= PATH_RAY_CURVE;
 		}
 		else {
 			memset(&pack.tri_woop[i * nsize], 0, sizeof(float4)*3);
@@ -548,9 +552,9 @@ void RegularBVH::pack_node(int idx, const BoundBox& b0, const BoundBox& b1, int 
 {
 	int4 data[BVH_NODE_SIZE] =
 	{
-		make_int4(__float_as_int(b0.min.x), __float_as_int(b0.max.x), __float_as_int(b0.min.y), __float_as_int(b0.max.y)),
-		make_int4(__float_as_int(b1.min.x), __float_as_int(b1.max.x), __float_as_int(b1.min.y), __float_as_int(b1.max.y)),
-		make_int4(__float_as_int(b0.min.z), __float_as_int(b0.max.z), __float_as_int(b1.min.z), __float_as_int(b1.max.z)),
+		make_int4(__float_as_int(b0.min.x), __float_as_int(b1.min.x), __float_as_int(b0.max.x), __float_as_int(b1.max.x)),
+		make_int4(__float_as_int(b0.min.y), __float_as_int(b1.min.y), __float_as_int(b0.max.y), __float_as_int(b1.max.y)),
+		make_int4(__float_as_int(b0.min.z), __float_as_int(b1.min.z), __float_as_int(b0.max.z), __float_as_int(b1.max.z)),
 		make_int4(c0, c1, visibility0, visibility1)
 	};
 
@@ -575,6 +579,7 @@ void RegularBVH::pack_nodes(const array<int>& prims, const BVHNode *root)
 	int nextNodeIdx = 0;
 
 	vector<BVHStackEntry> stack;
+	stack.reserve(BVHParams::MAX_DEPTH*2);
 	stack.push_back(BVHStackEntry(root, nextNodeIdx++));
 
 	while(stack.size()) {
@@ -651,6 +656,8 @@ void RegularBVH::refit_node(int idx, bool leaf, BoundBox& bbox, uint& visibility
 					float mr = max(mesh->curve_keys[k0].radius,mesh->curve_keys[k1].radius);
 					bbox.grow(lower, mr);
 					bbox.grow(upper, mr);
+
+					visibility |= PATH_RAY_CURVE;
 				}
 				else {
 					/* triangles */
@@ -770,6 +777,7 @@ void QBVH::pack_nodes(const array<int>& prims, const BVHNode *root)
 	int nextNodeIdx = 0;
 
 	vector<BVHStackEntry> stack;
+	stack.reserve(BVHParams::MAX_DEPTH*2);
 	stack.push_back(BVHStackEntry(root, nextNodeIdx++));
 
 	while(stack.size()) {

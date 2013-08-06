@@ -1183,6 +1183,10 @@ static PyObject *gPySetGLSLMaterialSetting(PyObject *,
 	else
 		gs->glslflag |= flag;
 
+	/* temporarily store the glsl settings in the scene for the GLSL materials */
+	GameData *gm= &(gp_KetsjiScene->GetBlenderScene()->gm);
+	gm->flag = gs->glslflag;
+
 	/* display lists and GLSL materials need to be remade */
 	if (sceneflag != gs->glslflag) {
 		GPU_materials_free();
@@ -1327,6 +1331,70 @@ static PyObject *gPySetWindowSize(PyObject *, PyObject *args)
 	Py_RETURN_NONE;
 }
 
+static PyObject *gPySetFullScreen(PyObject *, PyObject *value)
+{
+	gp_Canvas->SetFullScreen(PyObject_IsTrue(value));
+	Py_RETURN_NONE;
+}
+
+static PyObject *gPyGetFullScreen(PyObject *)
+{
+	return PyBool_FromLong(gp_Canvas->GetFullScreen());
+}
+
+static PyObject *gPySetMipmapping(PyObject *, PyObject *args)
+{
+	int val = 0;
+
+	if (!PyArg_ParseTuple(args, "i:setMipmapping", &val))
+		return NULL;
+
+	if (val < 0 || val > RAS_IRasterizer::RAS_MIPMAP_MAX) {
+		PyErr_SetString(PyExc_ValueError, "Rasterizer.setMipmapping(val): invalid mipmaping option");
+		return NULL;
+	}
+
+	if (!gp_Rasterizer) {
+		PyErr_SetString(PyExc_RuntimeError, "Rasterizer.setMipmapping(val): Rasterizer not available");
+		return NULL;
+	}
+
+	gp_Rasterizer->SetMipmapping((RAS_IRasterizer::MipmapOption)val);
+	Py_RETURN_NONE;
+}
+
+static PyObject *gPyGetMipmapping(PyObject *)
+{
+	if (!gp_Rasterizer) {
+		PyErr_SetString(PyExc_RuntimeError, "Rasterizer.getMipmapping(): Rasterizer not available");
+		return NULL;
+	}
+	return PyLong_FromLong(gp_Rasterizer->GetMipmapping());
+}
+
+static PyObject *gPySetVsync(PyObject *, PyObject *args)
+{
+	int interval;
+
+	if (!PyArg_ParseTuple(args, "i:setVsync", &interval))
+		return NULL;
+
+	if (interval < VSYNC_OFF || interval > VSYNC_ADAPTIVE) {
+		PyErr_SetString(PyExc_ValueError, "Rasterizer.setVsync(value): value must be VSYNC_OFF, VSYNC_ON, or VSYNC_ADAPTIVE");
+		return NULL;
+	}
+
+	if (interval == VSYNC_ADAPTIVE)
+		interval = -1;
+	gp_Canvas->SetSwapInterval(interval);
+	Py_RETURN_NONE;
+}
+
+static PyObject *gPyGetVsync(PyObject *)
+{
+	return PyLong_FromLong(gp_Canvas->GetSwapInterval());
+}
+
 static struct PyMethodDef rasterizer_methods[] = {
 	{"getWindowWidth",(PyCFunction) gPyGetWindowWidth,
 	 METH_VARARGS, "getWindowWidth doc"},
@@ -1368,6 +1436,12 @@ static struct PyMethodDef rasterizer_methods[] = {
 	{"drawLine", (PyCFunction) gPyDrawLine,
 	 METH_VARARGS, "draw a line on the screen"},
 	{"setWindowSize", (PyCFunction) gPySetWindowSize, METH_VARARGS, ""},
+	{"setFullScreen", (PyCFunction) gPySetFullScreen, METH_O, ""},
+	{"getFullScreen", (PyCFunction) gPyGetFullScreen, METH_NOARGS, ""},
+	{"setMipmapping", (PyCFunction) gPySetMipmapping, METH_VARARGS, ""},
+	{"getMipmapping", (PyCFunction) gPyGetMipmapping, METH_NOARGS, ""},
+	{"setVsync", (PyCFunction) gPySetVsync, METH_VARARGS, ""},
+	{"getVsync", (PyCFunction) gPyGetVsync, METH_NOARGS, ""},
 	{ NULL, (PyCFunction) NULL, 0, NULL }
 };
 
@@ -2073,6 +2147,7 @@ void setupGamePython(KX_KetsjiEngine* ketsjiengine, KX_Scene *startscene, Main *
 	                                        "'render':__import__('Rasterizer'), "
 	                                        "'events':__import__('GameKeys'), "
 	                                        "'constraints':__import__('PhysicsConstraints'), "
+	                                        "'physics':__import__('PhysicsConstraints'),"
 	                                        "'types':__import__('GameTypes'), "
 	                                        "'texture':__import__('VideoTexture')});"
 	                   /* so we can do 'import bge.foo as bar' */
@@ -2081,6 +2156,7 @@ void setupGamePython(KX_KetsjiEngine* ketsjiengine, KX_Scene *startscene, Main *
 	                                       "'bge.render':bge.render, "
 	                                       "'bge.events':bge.events, "
 	                                       "'bge.constraints':bge.constraints, "
+	                                       "'bge.physics':bge.physics,"
 	                                       "'bge.types':bge.types, "
 	                                       "'bge.texture':bge.texture})"
 	                   );
@@ -2133,6 +2209,15 @@ PyObject *initRasterizer(RAS_IRasterizer* rasty,RAS_ICanvas* canvas)
 	KX_MACRO_addTypesToDict(d, KX_TEXFACE_MATERIAL, KX_TEXFACE_MATERIAL);
 	KX_MACRO_addTypesToDict(d, KX_BLENDER_MULTITEX_MATERIAL, KX_BLENDER_MULTITEX_MATERIAL);
 	KX_MACRO_addTypesToDict(d, KX_BLENDER_GLSL_MATERIAL, KX_BLENDER_GLSL_MATERIAL);
+
+	KX_MACRO_addTypesToDict(d, RAS_MIPMAP_NONE, RAS_IRasterizer::RAS_MIPMAP_NONE);
+	KX_MACRO_addTypesToDict(d, RAS_MIPMAP_NEAREST, RAS_IRasterizer::RAS_MIPMAP_NEAREST);
+	KX_MACRO_addTypesToDict(d, RAS_MIPMAP_LINEAR, RAS_IRasterizer::RAS_MIPMAP_LINEAR);
+
+	/* for get/setVsync */
+	KX_MACRO_addTypesToDict(d, VSYNC_OFF, VSYNC_OFF);
+	KX_MACRO_addTypesToDict(d, VSYNC_ON, VSYNC_ON);
+	KX_MACRO_addTypesToDict(d, VSYNC_ADAPTIVE, VSYNC_ADAPTIVE);
 
 	// XXXX Add constants here
 
@@ -2362,6 +2447,8 @@ PyObject *initGameKeys()
 	KX_MACRO_addTypesToDict(d, F17KEY, SCA_IInputDevice::KX_F17KEY);
 	KX_MACRO_addTypesToDict(d, F18KEY, SCA_IInputDevice::KX_F18KEY);
 	KX_MACRO_addTypesToDict(d, F19KEY, SCA_IInputDevice::KX_F19KEY);
+
+	KX_MACRO_addTypesToDict(d, OSKEY, SCA_IInputDevice::KX_OSKEY);
 		
 	KX_MACRO_addTypesToDict(d, PAUSEKEY,  SCA_IInputDevice::KX_PAUSEKEY);
 	KX_MACRO_addTypesToDict(d, INSERTKEY, SCA_IInputDevice::KX_INSERTKEY);

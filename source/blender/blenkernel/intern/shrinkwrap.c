@@ -54,7 +54,7 @@
 #include "BKE_mesh.h"
 #include "BKE_subsurf.h"
 #include "BKE_mesh.h"
-#include "BKE_tessmesh.h"
+#include "BKE_editmesh.h"
 
 /* for timing... */
 #if 0
@@ -86,7 +86,7 @@ void space_transform_from_matrixs(SpaceTransform *data, float local[4][4], float
 {
 	float itarget[4][4];
 	invert_m4_m4(itarget, target);
-	mul_serie_m4(data->local2target, itarget, local, NULL, NULL, NULL, NULL, NULL, NULL);
+	mul_m4_m4m4(data->local2target, itarget, local);
 	invert_m4_m4(data->target2local, data->local2target);
 }
 

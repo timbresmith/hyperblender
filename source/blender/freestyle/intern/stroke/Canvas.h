@@ -40,6 +40,10 @@
 
 #include "../system/FreestyleConfig.h"
 
+#ifdef WITH_CXX_GUARDEDALLOC
+#include "MEM_guardedalloc.h"
+#endif
+
 namespace Freestyle {
 
 using namespace Geometry;
@@ -191,6 +195,7 @@ public:
 
 	virtual int width() const = 0;
 	virtual int height() const = 0;
+	virtual BBox<Vec2i> border() const = 0;
 	virtual BBox<Vec3r> scene3DBBox() const = 0;
 
 	inline const StrokeRenderer *renderer() const
@@ -239,6 +244,10 @@ public:
 	void resetModified(bool iMod = false);
 	void causalStyleModules(std::vector<unsigned>& vec, unsigned index = 0);
 	void setModified(unsigned index, bool b);
+
+#ifdef WITH_CXX_GUARDEDALLOC
+	MEM_CXX_CLASS_ALLOC_FUNCS("Freestyle:Canvas")
+#endif
 };
 
 } /* namespace Freestyle */

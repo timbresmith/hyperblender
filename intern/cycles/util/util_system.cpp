@@ -194,12 +194,17 @@ bool system_cpu_support_sse2()
 bool system_cpu_support_sse3()
 {
 	CPUCapabilities& caps = system_cpu_capabilities();
-	return caps.sse && caps.sse2 && caps.sse3;
+	return caps.sse && caps.sse2 && caps.sse3 && caps.ssse3;
 }
 
 #else
 
-bool system_cpu_support_optimized()
+bool system_cpu_support_sse2()
+{
+	return false;
+}
+
+bool system_cpu_support_sse3()
 {
 	return false;
 }

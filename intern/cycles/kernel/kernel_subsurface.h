@@ -163,6 +163,10 @@ __device void subsurface_scatter_setup_diffuse_bsdf(ShaderData *sd, float3 weigh
 	sd->flag |= bsdf_diffuse_setup(sc);
 	sd->randb_closure = 0.0f;
 
+	/* replace CLOSURE_BSDF_DIFFUSE_ID with this special ID so render passes
+	 * can recognize it as not being a regular diffuse closure */
+	sc->type = CLOSURE_BSDF_BSSRDF_ID;
+
 	/* todo: evaluate shading to get blurred textures and bump mapping */
 	/* shader_eval_surface(kg, sd, 0.0f, state_flag, SHADER_CONTEXT_SSS); */
 }
@@ -203,14 +207,13 @@ __device void subsurface_scatter_step(KernelGlobals *kg, ShaderData *sd, int sta
 		ray.P = p1;
 		ray.D = normalize_len(p2 - p1, &ray.t);
 		ray.dP = sd->dP;
-		ray.dD.dx = make_float3(0.0f, 0.0f, 0.0f);
-		ray.dD.dy = make_float3(0.0f, 0.0f, 0.0f);
+		ray.dD = differential3_zero();
 		ray.time = sd->time;
 
 		/* intersect with the same object. if multiple intersections are
 		 * found it will randomly pick one of them */
 		Intersection isect;
-		if(scene_intersect_subsurface(kg, &ray, &isect, sd->object, u6) == 0)
+		if(!scene_intersect_subsurface(kg, &ray, &isect, sd->object, u6))
 			continue;
 
 		/* setup new shading point */

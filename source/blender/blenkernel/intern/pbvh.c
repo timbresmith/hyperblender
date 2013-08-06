@@ -41,6 +41,8 @@
 
 #include "GPU_buffers.h"
 
+#include "bmesh.h"
+
 #include "pbvh_intern.h"
 
 #define LEAF_LIMIT 10000
@@ -294,7 +296,7 @@ static void build_mesh_leaf_node(PBVH *bvh, PBVHNode *node)
 
 	/* Build the vertex list, unique verts first */
 	for (iter = BLI_ghashIterator_new(map), i = 0;
-	     BLI_ghashIterator_notDone(iter);
+	     BLI_ghashIterator_done(iter) == false;
 	     BLI_ghashIterator_step(iter), ++i)
 	{
 		void *value = BLI_ghashIterator_getValue(iter);
@@ -536,7 +538,7 @@ void BKE_pbvh_build_mesh(PBVH *bvh, MFace *faces, MVert *verts, int totface, int
 
 /* Do a full rebuild with on Grids data structure */
 void BKE_pbvh_build_grids(PBVH *bvh, CCGElem **grids, DMGridAdjacency *gridadj,
-                          int totgrid, CCGKey *key, void **gridfaces, DMFlagMat *flagmats, BLI_bitmap *grid_hidden)
+                          int totgrid, CCGKey *key, void **gridfaces, DMFlagMat *flagmats, BLI_bitmap **grid_hidden)
 {
 	BBC *prim_bbc = NULL;
 	BB cb;
@@ -751,7 +753,7 @@ void BKE_pbvh_search_gather(PBVH *bvh,
                             PBVHNode ***r_array, int *r_tot)
 {
 	PBVHIter iter;
-	PBVHNode **array = NULL, **newarray, *node;
+	PBVHNode **array = NULL, *node;
 	int tot = 0, space = 0;
 
 	pbvh_iter_begin(&iter, bvh, scb, search_data);
@@ -761,14 +763,7 @@ void BKE_pbvh_search_gather(PBVH *bvh,
 			if (tot == space) {
 				/* resize array if needed */
 				space = (tot == 0) ? 32 : space * 2;
-				newarray = MEM_callocN(sizeof(PBVHNode) * space, "PBVHNodeSearch");
-
-				if (array) {
-					memcpy(newarray, array, sizeof(PBVHNode) * tot);
-					MEM_freeN(array);
-				}
-
-				array = newarray;
+				array = MEM_recallocN_id(array, sizeof(PBVHNode *) * space, __func__);
 			}
 
 			array[tot] = node;
@@ -1217,7 +1212,7 @@ void BKE_pbvh_get_grid_updates(PBVH *bvh, int clear, void ***gridfaces, int *tot
 	faces = MEM_callocN(sizeof(void *) * tot, "PBVH Grid Faces");
 
 	for (hiter = BLI_ghashIterator_new(map), i = 0;
-	     BLI_ghashIterator_notDone(hiter);
+	     BLI_ghashIterator_done(hiter) == false;
 	     BLI_ghashIterator_step(hiter), ++i)
 	{
 		faces[i] = BLI_ghashIterator_getKey(hiter);
@@ -1251,7 +1246,7 @@ void BKE_pbvh_bounding_box(const PBVH *bvh, float min[3], float max[3])
 	}
 }
 
-BLI_bitmap *BKE_pbvh_grid_hidden(const PBVH *bvh)
+BLI_bitmap **BKE_pbvh_grid_hidden(const PBVH *bvh)
 {
 	BLI_assert(bvh->type == PBVH_GRIDS);
 	return bvh->grid_hidden;
@@ -1467,7 +1462,7 @@ static int pbvh_grids_node_raycast(PBVH *bvh, PBVHNode *node,
 
 	for (i = 0; i < totgrid; ++i) {
 		CCGElem *grid = bvh->grids[node->prim_indices[i]];
-		BLI_bitmap gh;
+		BLI_bitmap *gh;
 
 		if (!grid)
 			continue;
@@ -1562,10 +1557,11 @@ void BKE_pbvh_node_draw(PBVHNode *node, void *data_v)
 	glColor3f(1, 0, 0);
 #endif
 
-	if (!(node->flag & PBVH_FullyHidden))
+	if (!(node->flag & PBVH_FullyHidden)) {
 		GPU_draw_buffers(node->draw_buffers,
-						 data->setMaterial,
-						 data->wireframe);
+		                 data->setMaterial,
+		                 data->wireframe);
+	}
 }
 
 typedef enum {
@@ -1661,7 +1657,7 @@ void BKE_pbvh_draw(PBVH *bvh, float (*planes)[4], float (*face_nors)[3],
 }
 
 void BKE_pbvh_grids_update(PBVH *bvh, CCGElem **grids, DMGridAdjacency *gridadj, void **gridfaces,
-                           DMFlagMat *flagmats, BLI_bitmap *grid_hidden)
+                           DMFlagMat *flagmats, BLI_bitmap **grid_hidden)
 {
 	int a;
 
@@ -1804,7 +1800,7 @@ void BKE_pbvh_node_free_proxies(PBVHNode *node)
 
 void BKE_pbvh_gather_proxies(PBVH *pbvh, PBVHNode ***r_array,  int *r_tot)
 {
-	PBVHNode **array = NULL, **newarray, *node;
+	PBVHNode **array = NULL, *node;
 	int tot = 0, space = 0;
 	int n;
 
@@ -1815,14 +1811,7 @@ void BKE_pbvh_gather_proxies(PBVH *pbvh, PBVHNode ***r_array,  int *r_tot)
 			if (tot == space) {
 				/* resize array if needed */
 				space = (tot == 0) ? 32 : space * 2;
-				newarray = MEM_callocN(sizeof(PBVHNode) * space, "BKE_pbvh_gather_proxies");
-
-				if (array) {
-					memcpy(newarray, array, sizeof(PBVHNode) * tot);
-					MEM_freeN(array);
-				}
-
-				array = newarray;
+				array = MEM_recallocN_id(array, sizeof(PBVHNode *) * space, __func__);
 			}
 
 			array[tot] = node;

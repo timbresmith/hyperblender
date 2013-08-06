@@ -21,7 +21,7 @@ CCL_NAMESPACE_BEGIN
 /* Direction Emission */
 
 __device_noinline float3 direct_emissive_eval(KernelGlobals *kg, float rando,
-	LightSample *ls, float u, float v, float3 I, float t, float time)
+	LightSample *ls, float u, float v, float3 I, differential3 dI, float t, float time, int bounce)
 {
 	/* setup shading at emitter */
 	ShaderData sd;
@@ -36,12 +36,12 @@ __device_noinline float3 direct_emissive_eval(KernelGlobals *kg, float rando,
 #ifdef __OBJECT_MOTION__
 		ray.time = time;
 #endif
-		ray.dP.dx = make_float3(0.0f, 0.0f, 0.0f);
-		ray.dP.dy = make_float3(0.0f, 0.0f, 0.0f);
+		ray.dP = differential3_zero();
+		ray.dD = dI;
 #ifdef __CAMERA_MOTION__
 		ray.time = time;
 #endif
-		shader_setup_from_background(kg, &sd, &ray);
+		shader_setup_from_background(kg, &sd, &ray, bounce+1);
 		eval = shader_eval_background(kg, &sd, 0, SHADER_CONTEXT_EMISSION);
 	}
 	else
@@ -49,10 +49,10 @@ __device_noinline float3 direct_emissive_eval(KernelGlobals *kg, float rando,
 	{
 #ifdef __HAIR__
 		if(ls->type == LIGHT_STRAND)
-			shader_setup_from_sample(kg, &sd, ls->P, ls->Ng, I, ls->shader, ls->object, ls->prim, u, v, t, time, ls->prim);
+			shader_setup_from_sample(kg, &sd, ls->P, ls->Ng, I, ls->shader, ls->object, ls->prim, u, v, t, time, bounce+1, ls->prim);
 		else
 #endif
-			shader_setup_from_sample(kg, &sd, ls->P, ls->Ng, I, ls->shader, ls->object, ls->prim, u, v, t, time);
+			shader_setup_from_sample(kg, &sd, ls->P, ls->Ng, I, ls->shader, ls->object, ls->prim, u, v, t, time, bounce+1, ~0);
 
 		ls->Ng = sd.Ng;
 
@@ -74,7 +74,7 @@ __device_noinline float3 direct_emissive_eval(KernelGlobals *kg, float rando,
 
 __device_noinline bool direct_emission(KernelGlobals *kg, ShaderData *sd, int lindex,
 	float randt, float rando, float randu, float randv, Ray *ray, BsdfEval *eval,
-	bool *is_lamp)
+	bool *is_lamp, int bounce)
 {
 	LightSample ls;
 
@@ -93,13 +93,14 @@ __device_noinline bool direct_emission(KernelGlobals *kg, ShaderData *sd, int li
 	if(ls.pdf == 0.0f)
 		return false;
 
+	/* todo: implement */
+	differential3 dD = differential3_zero();
+
 	/* evaluate closure */
-	float3 light_eval = direct_emissive_eval(kg, rando, &ls, randu, randv, -ls.D, ls.t, sd->time);
+	float3 light_eval = direct_emissive_eval(kg, rando, &ls, randu, randv, -ls.D, dD, ls.t, sd->time, bounce);
 
 	if(is_zero(light_eval))
 		return false;
-
-	/* todo: use visbility flag to skip lights */
 
 	/* evaluate BSDF at shading point */
 	float bsdf_pdf;
@@ -113,6 +114,18 @@ __device_noinline bool direct_emission(KernelGlobals *kg, ShaderData *sd, int li
 	}
 	
 	bsdf_eval_mul(eval, light_eval/ls.pdf);
+
+#ifdef __PASSES__
+	/* use visibility flag to skip lights */
+	if(ls.shader & SHADER_EXCLUDE_ANY) {
+		if(ls.shader & SHADER_EXCLUDE_DIFFUSE)
+			eval->diffuse = make_float3(0.0f, 0.0f, 0.0f);
+		if(ls.shader & SHADER_EXCLUDE_GLOSSY)
+			eval->glossy = make_float3(0.0f, 0.0f, 0.0f);
+		if(ls.shader & SHADER_EXCLUDE_TRANSMIT)
+			eval->transmission = make_float3(0.0f, 0.0f, 0.0f);
+	}
+#endif
 
 	if(bsdf_eval_is_zero(eval))
 		return false;
@@ -132,6 +145,9 @@ __device_noinline bool direct_emission(KernelGlobals *kg, ShaderData *sd, int li
 			ray->D = ray_offset(ls.P, ls.Ng) - ray->P;
 			ray->D = normalize_len(ray->D, &ray->t);
 		}
+
+		ray->dP = sd->dP;
+		ray->dD = differential3_zero();
 	}
 	else {
 		/* signal to not cast shadow ray */
@@ -152,9 +168,9 @@ __device_noinline float3 indirect_primitive_emission(KernelGlobals *kg, ShaderDa
 	float3 L = shader_emissive_eval(kg, sd);
 
 #ifdef __HAIR__
-	if(!(path_flag & PATH_RAY_MIS_SKIP) && (sd->flag & SD_SAMPLE_AS_LIGHT) && (sd->segment == ~0)) {
+	if(!(path_flag & PATH_RAY_MIS_SKIP) && (sd->flag & SD_USE_MIS) && (sd->segment == ~0)) {
 #else
-	if(!(path_flag & PATH_RAY_MIS_SKIP) && (sd->flag & SD_SAMPLE_AS_LIGHT)) {
+	if(!(path_flag & PATH_RAY_MIS_SKIP) && (sd->flag & SD_USE_MIS)) {
 #endif
 		/* multiple importance sampling, get triangle light pdf,
 		 * and compute weight with respect to BSDF pdf */
@@ -169,7 +185,7 @@ __device_noinline float3 indirect_primitive_emission(KernelGlobals *kg, ShaderDa
 
 /* Indirect Lamp Emission */
 
-__device_noinline bool indirect_lamp_emission(KernelGlobals *kg, Ray *ray, int path_flag, float bsdf_pdf, float randt, float3 *emission)
+__device_noinline bool indirect_lamp_emission(KernelGlobals *kg, Ray *ray, int path_flag, float bsdf_pdf, float randt, float3 *emission, int bounce)
 {
 	LightSample ls;
 	int lamp = lamp_light_eval_sample(kg, randt);
@@ -179,11 +195,21 @@ __device_noinline bool indirect_lamp_emission(KernelGlobals *kg, Ray *ray, int p
 
 	if(!lamp_light_eval(kg, lamp, ray->P, ray->D, ray->t, &ls))
 		return false;
-	
+
+#ifdef __PASSES__
+	/* use visibility flag to skip lights */
+	if(ls.shader & SHADER_EXCLUDE_ANY) {
+		if(((ls.shader & SHADER_EXCLUDE_DIFFUSE) && (path_flag & PATH_RAY_DIFFUSE)) ||
+		   ((ls.shader & SHADER_EXCLUDE_GLOSSY) && (path_flag & PATH_RAY_GLOSSY)) ||
+		   ((ls.shader & SHADER_EXCLUDE_TRANSMIT) && (path_flag & PATH_RAY_TRANSMIT)))
+			return false;
+	}
+#endif
+
 	/* todo: missing texture coordinates */
 	float u = 0.0f;
 	float v = 0.0f;
-	float3 L = direct_emissive_eval(kg, 0.0f, &ls, u, v, -ray->D, ls.t, ray->time);
+	float3 L = direct_emissive_eval(kg, 0.0f, &ls, u, v, -ray->D, ray->dD, ls.t, ray->time, bounce);
 
 	if(!(path_flag & PATH_RAY_MIS_SKIP)) {
 		/* multiple importance sampling, get regular light pdf,
@@ -198,12 +224,24 @@ __device_noinline bool indirect_lamp_emission(KernelGlobals *kg, Ray *ray, int p
 
 /* Indirect Background */
 
-__device_noinline float3 indirect_background(KernelGlobals *kg, Ray *ray, int path_flag, float bsdf_pdf)
+__device_noinline float3 indirect_background(KernelGlobals *kg, Ray *ray, int path_flag, float bsdf_pdf, int bounce)
 {
 #ifdef __BACKGROUND__
+	int shader = kernel_data.background.shader;
+
+	/* use visibility flag to skip lights */
+	if(shader & SHADER_EXCLUDE_ANY) {
+		if(((shader & SHADER_EXCLUDE_DIFFUSE) && (path_flag & PATH_RAY_DIFFUSE)) ||
+		   ((shader & SHADER_EXCLUDE_GLOSSY) && (path_flag & PATH_RAY_GLOSSY)) ||
+		   ((shader & SHADER_EXCLUDE_TRANSMIT) && (path_flag & PATH_RAY_TRANSMIT)) ||
+		   ((shader & SHADER_EXCLUDE_CAMERA) && (path_flag & PATH_RAY_CAMERA)))
+			return make_float3(0.0f, 0.0f, 0.0f);
+	}
+
 	/* evaluate background closure */
 	ShaderData sd;
-	shader_setup_from_background(kg, &sd, ray);
+	shader_setup_from_background(kg, &sd, ray, bounce+1);
+
 	float3 L = shader_eval_background(kg, &sd, path_flag, SHADER_CONTEXT_EMISSION);
 
 #ifdef __BACKGROUND_MIS__

@@ -246,13 +246,13 @@ public:
 			for(int y = task.y; y < task.y + task.h; y++)
 				for(int x = task.x; x < task.x + task.w; x++)
 					kernel_cpu_sse3_tonemap(&kernel_globals, (uchar4*)task.rgba, (float*)task.buffer,
-						task.sample, task.resolution, x, y, task.offset, task.stride);
+						task.sample, x, y, task.offset, task.stride);
 		}
 		else if(system_cpu_support_sse2()) {
 			for(int y = task.y; y < task.y + task.h; y++)
 				for(int x = task.x; x < task.x + task.w; x++)
 					kernel_cpu_sse2_tonemap(&kernel_globals, (uchar4*)task.rgba, (float*)task.buffer,
-						task.sample, task.resolution, x, y, task.offset, task.stride);
+						task.sample, x, y, task.offset, task.stride);
 		}
 		else
 #endif
@@ -260,7 +260,7 @@ public:
 			for(int y = task.y; y < task.y + task.h; y++)
 				for(int x = task.x; x < task.x + task.w; x++)
 					kernel_cpu_tonemap(&kernel_globals, (uchar4*)task.rgba, (float*)task.buffer,
-						task.sample, task.resolution, x, y, task.offset, task.stride);
+						task.sample, x, y, task.offset, task.stride);
 		}
 	}
 
@@ -307,8 +307,7 @@ public:
 
 	void task_add(DeviceTask& task)
 	{
-		/* split task into smaller ones, more than number of threads for uneven
-		 * workloads where some parts of the image render slower than others */
+		/* split task into smaller ones */
 		list<DeviceTask> tasks;
 		task.split(tasks, TaskScheduler::num_threads());
 

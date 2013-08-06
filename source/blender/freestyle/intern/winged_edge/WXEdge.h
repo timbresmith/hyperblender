@@ -32,6 +32,10 @@
 #include "Nature.h"
 #include "WEdge.h"
 
+#ifdef WITH_CXX_GUARDEDALLOC
+#include "MEM_guardedalloc.h"
+#endif
+
 namespace Freestyle {
 
 typedef Nature::EdgeNature WXNature;
@@ -91,6 +95,11 @@ public:
 	{
 		return _curvatures;
 	}
+
+#ifdef WITH_CXX_GUARDEDALLOC
+	MEM_CXX_CLASS_ALLOC_FUNCS("Freestyle:WXVertex")
+#endif
+
 };
 
 
@@ -193,6 +202,11 @@ public:
 	{
 		_order = i;
 	}
+
+#ifdef WITH_CXX_GUARDEDALLOC
+	MEM_CXX_CLASS_ALLOC_FUNCS("Freestyle:WXEdge")
+#endif
+
 };
 
 /**********************************
@@ -302,6 +316,10 @@ public:
 	{
 		_config = iConf;
 	}
+
+#ifdef WITH_CXX_GUARDEDALLOC
+	MEM_CXX_CLASS_ALLOC_FUNCS("Freestyle:WXSmoothEdge")
+#endif
 };
 
 /* Class to store a value per vertex and a smooth edge.
@@ -471,6 +489,10 @@ public:
 				++_nNullDotP;
 		}
 	}
+
+#ifdef WITH_CXX_GUARDEDALLOC
+	MEM_CXX_CLASS_ALLOC_FUNCS("Freestyle:WXFaceLayer")
+#endif
 };
 
 class WXFace : public WFace
@@ -674,6 +696,11 @@ public:
 			(*wxf)->userdata = NULL;
 		}
 	}
+
+#ifdef WITH_CXX_GUARDEDALLOC
+	MEM_CXX_CLASS_ALLOC_FUNCS("Freestyle:WXFace")
+#endif
+
 };
 
 
@@ -770,6 +797,11 @@ public:
 		}
 	}
 	/*! accessors */
+
+#ifdef WITH_CXX_GUARDEDALLOC
+	MEM_CXX_CLASS_ALLOC_FUNCS("Freestyle:WXShape")
+#endif
+
 };
 
 /*

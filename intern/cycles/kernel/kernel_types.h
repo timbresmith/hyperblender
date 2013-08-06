@@ -44,6 +44,12 @@ CCL_NAMESPACE_BEGIN
 #define BSSRDF_MIN_RADIUS			1e-8f
 #define BSSRDF_MAX_ATTEMPTS			8
 
+#define BB_DRAPPER				800.0
+#define BB_MAX_TABLE_RANGE		12000.0
+#define BB_TABLE_XPOWER			1.5
+#define BB_TABLE_YPOWER			5.0
+#define BB_TABLE_SPACING		2.0
+
 #define TEX_NUM_FLOAT_IMAGES	5
 
 /* device capabilities */
@@ -51,11 +57,11 @@ CCL_NAMESPACE_BEGIN
 #define __KERNEL_SHADING__
 #define __KERNEL_ADV_SHADING__
 #define __NON_PROGRESSIVE__
-#define __HAIR__
 #ifdef WITH_OSL
 #define __OSL__
 #endif
 #define __SUBSURFACE__
+#define __CMJ__
 #endif
 
 #ifdef __KERNEL_CUDA__
@@ -67,27 +73,41 @@ CCL_NAMESPACE_BEGIN
 
 #ifdef __KERNEL_OPENCL__
 
+/* keep __KERNEL_ADV_SHADING__ in sync with opencl_kernel_use_advanced_shading! */
+
 #ifdef __KERNEL_OPENCL_NVIDIA__
 #define __KERNEL_SHADING__
-#define __MULTI_CLOSURE__
+#define __KERNEL_ADV_SHADING__
 #endif
 
 #ifdef __KERNEL_OPENCL_APPLE__
-//#define __SVM__
-//#define __EMISSION__
-//#define __IMAGE_TEXTURES__
-//#define __HOLDOUT__
-//#define __PROCEDURAL_TEXTURES__
-//#define __EXTRA_NODES__
+#define __KERNEL_SHADING__
+//#define __KERNEL_ADV_SHADING__
 #endif
 
 #ifdef __KERNEL_OPENCL_AMD__
 #define __SVM__
 #define __EMISSION__
 #define __IMAGE_TEXTURES__
-#define __HOLDOUT__
 #define __PROCEDURAL_TEXTURES__
 #define __EXTRA_NODES__
+#define __HOLDOUT__
+#define __NORMAL_MAP__
+//#define __BACKGROUND_MIS__
+//#define __LAMP_MIS__
+//#define __AO__
+//#define __ANISOTROPIC__
+//#define __CAMERA_MOTION__
+//#define __OBJECT_MOTION__
+//#define __HAIR__
+//#define __MULTI_CLOSURE__
+//#define __TRANSPARENT_SHADOWS__
+//#define __PASSES__
+#endif
+
+#ifdef __KERNEL_OPENCL_INTEL_CPU__
+#define __KERNEL_SHADING__
+#define __KERNEL_ADV_SHADING__
 #endif
 
 #endif
@@ -125,15 +145,21 @@ CCL_NAMESPACE_BEGIN
 #define __ANISOTROPIC__
 #define __CAMERA_MOTION__
 #define __OBJECT_MOTION__
+#define __HAIR__
 #endif
-//#define __SOBOL_FULL_SCREEN__
+
+/* Sanity check */
+
+#if defined(__KERNEL_OPENCL_NEED_ADVANCED_SHADING__) && !defined(__MULTI_CLOSURE__)
+#error "OpenCL: mismatch between advanced shading flags in device_opencl.cpp and kernel_types.h"
+#endif
 
 /* Shader Evaluation */
 
-enum ShaderEvalType {
+typedef enum ShaderEvalType {
 	SHADER_EVAL_DISPLACE,
 	SHADER_EVAL_BACKGROUND
-};
+} ShaderEvalType;
 
 /* Path Tracing
  * note we need to keep the u/v pairs at even values */
@@ -145,8 +171,10 @@ enum PathTraceDimension {
 	PRNG_LENS_V = 3,
 #ifdef __CAMERA_MOTION__
 	PRNG_TIME = 4,
-	PRNG_UNUSED = 5,
-	PRNG_BASE_NUM = 6,
+	PRNG_UNUSED_0 = 5,
+	PRNG_UNUSED_1 = 6,	/* for some reason (6, 7) is a bad sobol pattern */
+	PRNG_UNUSED_2 = 7,  /* with a low number of samples (< 64) */
+	PRNG_BASE_NUM = 8,
 #else
 	PRNG_BASE_NUM = 4,
 #endif
@@ -160,6 +188,11 @@ enum PathTraceDimension {
 	PRNG_LIGHT_F = 6,
 	PRNG_TERMINATE = 7,
 	PRNG_BOUNCE_NUM = 8
+};
+
+enum SamplingPattern {
+	SAMPLING_PATTERN_SOBOL = 0,
+	SAMPLING_PATTERN_CMJ = 1
 };
 
 /* these flags values correspond to raytypes in osl.cpp, so keep them in sync!
@@ -183,6 +216,9 @@ enum PathRayFlag {
 	PATH_RAY_MIS_SKIP = 512,
 
 	PATH_RAY_ALL = (1|2|4|8|16|32|64|128|256|512),
+
+	/* visibility flag to define curve segments*/
+	PATH_RAY_CURVE = 1024,
 
 	/* this gives collisions with localview bits
 	 * see: CYCLES_LOCAL_LAYER_HACK(), grr - Campbell */
@@ -231,7 +267,11 @@ typedef enum PassType {
 	PASS_AO = 131072,
 	PASS_SHADOW = 262144,
 	PASS_MOTION = 524288,
-	PASS_MOTION_WEIGHT = 1048576
+	PASS_MOTION_WEIGHT = 1048576,
+	PASS_MIST = 2097152,
+	PASS_SUBSURFACE_DIRECT = 4194304,
+	PASS_SUBSURFACE_INDIRECT = 8388608,
+	PASS_SUBSURFACE_COLOR = 16777216
 } PassType;
 
 #define PASS_ALL (~0)
@@ -254,20 +294,25 @@ typedef struct PathRadiance {
 	float3 color_diffuse;
 	float3 color_glossy;
 	float3 color_transmission;
+	float3 color_subsurface;
 
 	float3 direct_diffuse;
 	float3 direct_glossy;
 	float3 direct_transmission;
+	float3 direct_subsurface;
 
 	float3 indirect_diffuse;
 	float3 indirect_glossy;
 	float3 indirect_transmission;
+	float3 indirect_subsurface;
 
 	float3 path_diffuse;
 	float3 path_glossy;
 	float3 path_transmission;
+	float3 path_subsurface;
 
 	float4 shadow;
+	float mist;
 } PathRadiance;
 
 typedef struct BsdfEval {
@@ -277,6 +322,7 @@ typedef struct BsdfEval {
 	float3 glossy;
 	float3 transmission;
 	float3 transparent;
+	float3 subsurface;
 } BsdfEval;
 
 #else
@@ -294,8 +340,13 @@ typedef enum ShaderFlag {
 	SHADER_CAST_SHADOW = (1 << 30),
 	SHADER_AREA_LIGHT = (1 << 29),
 	SHADER_USE_MIS = (1 << 28),
+	SHADER_EXCLUDE_DIFFUSE = (1 << 27),
+	SHADER_EXCLUDE_GLOSSY = (1 << 26),
+	SHADER_EXCLUDE_TRANSMIT = (1 << 25),
+	SHADER_EXCLUDE_CAMERA = (1 << 24),
+	SHADER_EXCLUDE_ANY = (SHADER_EXCLUDE_DIFFUSE|SHADER_EXCLUDE_GLOSSY|SHADER_EXCLUDE_TRANSMIT|SHADER_EXCLUDE_CAMERA),
 
-	SHADER_MASK = ~(SHADER_SMOOTH_NORMAL|SHADER_CAST_SHADOW|SHADER_AREA_LIGHT|SHADER_USE_MIS)
+	SHADER_MASK = ~(SHADER_SMOOTH_NORMAL|SHADER_CAST_SHADOW|SHADER_AREA_LIGHT|SHADER_USE_MIS|SHADER_EXCLUDE_ANY)
 } ShaderFlag;
 
 /* Light Type */
@@ -399,7 +450,7 @@ typedef enum AttributeStandard {
 
 /* Closure data */
 
-#define MAX_CLOSURE 16
+#define MAX_CLOSURE 64
 
 typedef struct ShaderClosure {
 	ClosureType type;
@@ -455,8 +506,8 @@ enum ShaderDataFlag {
 	SD_CLOSURE_FLAGS = (SD_EMISSION|SD_BSDF|SD_BSDF_HAS_EVAL|SD_BSDF_GLOSSY|SD_BSSRDF|SD_HOLDOUT|SD_VOLUME|SD_AO),
 
 	/* shader flags */
-	SD_SAMPLE_AS_LIGHT = 512,			/* direct light sample */
-	SD_HAS_SURFACE_TRANSPARENT = 1024,	/* has surface transparency */
+	SD_USE_MIS = 512,					/* direct light sample */
+	SD_HAS_TRANSPARENT_SHADOW = 1024,	/* has transparent shadow */
 	SD_HAS_VOLUME = 2048,				/* has volume shader */
 	SD_HOMOGENEOUS_VOLUME = 4096,		/* has homogeneous volume */
 
@@ -465,6 +516,8 @@ enum ShaderDataFlag {
 	SD_OBJECT_MOTION = 16384,			/* has object motion blur */
 	SD_TRANSFORM_APPLIED = 32768 		/* vertices have transform applied */
 };
+
+struct KernelGlobals;
 
 typedef struct ShaderData {
 	/* position */
@@ -486,6 +539,9 @@ typedef struct ShaderData {
 #ifdef __HAIR__
 	/* for curves, segment number in curve, ~0 for triangles */
 	int segment;
+	/* variables for minimum hair width using transparency bsdf */
+	/*float curve_transparency; */
+	/*float curve_radius; */
 #endif
 	/* parametric coordinates
 	 * - barycentric weights for triangles */
@@ -498,6 +554,9 @@ typedef struct ShaderData {
 	
 	/* length of the ray being shaded */
 	float ray_length;
+	
+	/* ray bounce depth */
+	int ray_depth;
 
 #ifdef __RAY_DIFFERENTIALS__
 	/* differential of P. these are orthogonal to Ng, not N */
@@ -529,6 +588,14 @@ typedef struct ShaderData {
 #else
 	/* Closure data, with a single sampled closure for low memory usage */
 	ShaderClosure closure;
+#endif
+
+	/* ray start position, only set for backgrounds */
+	float3 ray_P;
+	differential3 ray_dP;
+
+#ifdef __OSL__
+	struct KernelGlobals *osl_globals;
 #endif
 } ShaderData;
 
@@ -575,6 +642,10 @@ typedef struct KernelCamera {
 
 	/* render size */
 	float width, height;
+	int resolution;
+	int pad1;
+	int pad2;
+	int pad3;
 
 	/* more matrices */
 	Transform screentoworld;
@@ -609,23 +680,32 @@ typedef struct KernelFilm {
 	int pass_diffuse_color;
 	int pass_glossy_color;
 	int pass_transmission_color;
+	int pass_subsurface_color;
+	
 	int pass_diffuse_indirect;
-
 	int pass_glossy_indirect;
 	int pass_transmission_indirect;
+	int pass_subsurface_indirect;
+	
 	int pass_diffuse_direct;
 	int pass_glossy_direct;
-
 	int pass_transmission_direct;
+	int pass_subsurface_direct;
+	
 	int pass_emission;
 	int pass_background;
 	int pass_ao;
+	int pass_pad1;
 
 	int pass_shadow;
 	float pass_shadow_scale;
-
 	int filter_table_offset;
-	int filter_pad;
+	int pass_pad2;
+
+	int pass_mist;
+	float mist_start;
+	float mist_inv_depth;
+	float mist_falloff;
 } KernelFilm;
 
 typedef struct KernelBackground {
@@ -687,6 +767,7 @@ typedef struct KernelIntegrator {
 
 	/* non-progressive */
 	int progressive;
+	int aa_samples;
 	int diffuse_samples;
 	int glossy_samples;
 	int transmission_samples;
@@ -695,7 +776,11 @@ typedef struct KernelIntegrator {
 	int use_lamp_mis;
 	int subsurface_samples;
 
-	int pad1, pad2, pad3;
+	/* sampler */
+	int sampling_pattern;
+
+	/* padding */
+	int pad;
 } KernelIntegrator;
 
 typedef struct KernelBVH {
@@ -703,16 +788,19 @@ typedef struct KernelBVH {
 	int root;
 	int attributes_map_stride;
 	int have_motion;
-	int pad2;
+	int have_curves;
+	int have_instancing;
+
+	int pad1, pad2, pad3;
 } KernelBVH;
 
 typedef enum CurveFlag {
 	/* runtime flags */
 	CURVE_KN_BACKFACING = 1,				/* backside of cylinder? */
 	CURVE_KN_ENCLOSEFILTER = 2,				/* don't consider strands surrounding start point? */
-	CURVE_KN_CURVEDATA = 4,				/* curve data available? */
-	CURVE_KN_INTERPOLATE = 8,				/* render as a curve? - not supported yet */
-	CURVE_KN_ACCURATE = 16,				/* use accurate intersections test? */
+	CURVE_KN_CURVEDATA = 4,					/* curve data available? */
+	CURVE_KN_INTERPOLATE = 8,				/* render as a curve? */
+	CURVE_KN_ACCURATE = 16,					/* use accurate intersections test? */
 	CURVE_KN_INTERSECTCORRECTION = 32,		/* correct for width after determing closest midpoint? */
 	CURVE_KN_POSTINTERSECTCORRECTION = 64,	/* correct for width after intersect? */
 	CURVE_KN_NORMALCORRECTION = 128,		/* correct tangent normal for slope? */
@@ -727,6 +815,12 @@ typedef struct KernelCurves {
 	float encasing_ratio;
 	int curveflags;
 	int subdivisions;
+
+	float minimum_width;
+	float maximum_width;
+	float curve_epsilon;
+	int pad1;
+
 } KernelCurves;
 
 typedef struct KernelBSSRDF {
@@ -734,6 +828,12 @@ typedef struct KernelBSSRDF {
 	int num_attempts;
 	int pad1, pad2;
 } KernelBSSRDF;
+
+typedef struct KernelBlackbody {
+	int table_offset;
+	int pad1, pad2, pad3;
+} KernelBlackbody;
+
 
 typedef struct KernelData {
 	KernelCamera cam;
@@ -744,6 +844,7 @@ typedef struct KernelData {
 	KernelBVH bvh;
 	KernelCurves curve_kernel_data;
 	KernelBSSRDF bssrdf;
+	KernelBlackbody blackbody;
 } KernelData;
 
 CCL_NAMESPACE_END

@@ -50,6 +50,7 @@
 #include "BLI_math.h"
 #include "BLI_rect.h"
 #include "BLI_threads.h"
+#include "BLI_string.h"
 
 #include "BLF_translation.h"
 
@@ -250,13 +251,13 @@ static int open_invoke(bContext *C, wmOperator *op, const wmEvent *UNUSED(event)
 		clip = ED_space_clip_get_clip(sc);
 
 	if (clip) {
-		strncpy(path, clip->name, sizeof(path));
+		BLI_strncpy(path, clip->name, sizeof(path));
 
 		BLI_path_abs(path, G.main->name);
 		BLI_parent_dir(path);
 	}
 	else {
-		strncpy(path, U.textudir, sizeof(path));
+		BLI_strncpy(path, U.textudir, sizeof(path));
 	}
 
 	if (RNA_struct_property_is_set(op->ptr, "files"))
@@ -1417,6 +1418,41 @@ void CLIP_OT_prefetch(wmOperatorType *ot)
 	ot->poll = ED_space_clip_view_clip_poll;
 	ot->invoke = clip_prefetch_invoke;
 	ot->modal = clip_prefetch_modal;
+}
+
+/********************** Set scene frames *********************/
+
+static int clip_set_scene_frames_exec(bContext *C, wmOperator *UNUSED(op))
+{
+	MovieClip *clip = CTX_data_edit_movieclip(C);
+	Scene *scene = CTX_data_scene(C);
+	int clip_length;
+
+	if (ELEM(NULL, scene, clip))
+		return OPERATOR_CANCELLED;
+
+	clip_length = BKE_movieclip_get_duration(clip);
+
+	scene->r.sfra = clip->start_frame;
+	scene->r.efra = scene->r.sfra + clip_length - 1;
+
+	scene->r.efra = max_ii(scene->r.sfra, scene->r.efra);
+
+	WM_event_add_notifier(C, NC_SCENE | ND_FRAME, scene);
+
+	return OPERATOR_FINISHED;
+}
+
+void CLIP_OT_set_scene_frames(wmOperatorType *ot)
+{
+	/* identifiers */
+	ot->name = "Set Scene Frames";
+	ot->idname = "CLIP_OT_set_scene_frames";
+	ot->description = "Set scene's start and end frame to match clip's start frame and length";
+
+	/* api callbacks */
+	ot->poll = ED_space_clip_view_clip_poll;
+	ot->exec = clip_set_scene_frames_exec;
 }
 
 /********************** macroses *********************/

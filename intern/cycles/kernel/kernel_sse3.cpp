@@ -16,11 +16,15 @@
  * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
  */
 
-/* Optimized CPU kernel entry points. This file is compiled with SSE3
+/* Optimized CPU kernel entry points. This file is compiled with SSE3/SSSE3
  * optimization flags and nearly all functions inlined, while kernel.cpp
  * is compiled without for other CPU's. */
 
 #ifdef WITH_OPTIMIZED_KERNEL
+
+#define __KERNEL_SSE2__
+#define __KERNEL_SSE3__
+#define __KERNEL_SSSE3__
 
 #include "kernel.h"
 #include "kernel_compat_cpu.h"
@@ -42,9 +46,9 @@ void kernel_cpu_sse3_path_trace(KernelGlobals *kg, float *buffer, unsigned int *
 
 /* Tonemapping */
 
-void kernel_cpu_sse3_tonemap(KernelGlobals *kg, uchar4 *rgba, float *buffer, int sample, int resolution, int x, int y, int offset, int stride)
+void kernel_cpu_sse3_tonemap(KernelGlobals *kg, uchar4 *rgba, float *buffer, int sample, int x, int y, int offset, int stride)
 {
-	kernel_film_tonemap(kg, rgba, buffer, sample, resolution, x, y, offset, stride);
+	kernel_film_tonemap(kg, rgba, buffer, sample, x, y, offset, stride);
 }
 
 /* Shader Evaluate */

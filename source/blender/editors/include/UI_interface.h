@@ -32,7 +32,7 @@
 #ifndef __UI_INTERFACE_H__
 #define __UI_INTERFACE_H__
 
-#include "BLO_sys_types.h" /* size_t */
+#include "BLI_sys_types.h" /* size_t */
 #include "RNA_types.h"
 #include "DNA_userdef_types.h"
 
@@ -95,84 +95,88 @@ typedef struct uiLayout uiLayout;
 #define UI_EMBOSST      3   /* Table */
 
 /* uiBlock->direction */
-#define UI_DIRECTION    (UI_TOP | UI_DOWN | UI_LEFT | UI_RIGHT)
-#define UI_TOP      1
-#define UI_DOWN     2
-#define UI_LEFT     4
-#define UI_RIGHT    8
+#define UI_DIRECTION       (UI_TOP | UI_DOWN | UI_LEFT | UI_RIGHT)
+#define UI_TOP             (1 << 0)
+#define UI_DOWN            (1 << 1)
+#define UI_LEFT            (1 << 2)
+#define UI_RIGHT           (1 << 3)
+#define UI_CENTER          (1 << 4)
+#define UI_SHIFT_FLIPPED   (1 << 5)
 
-#define UI_CENTER       16
-#define UI_SHIFT_FLIPPED    32
-
+#if 0
 /* uiBlock->autofill (not yet used) */
-// #define UI_BLOCK_COLLUMNS	1
-// #define UI_BLOCK_ROWS		2
+#define UI_BLOCK_COLLUMNS  1
+#define UI_BLOCK_ROWS      2
+#endif
 
 /* uiBlock->flag (controls) */
-#define UI_BLOCK_LOOP           1
-#define UI_BLOCK_REDRAW         2
-#define UI_BLOCK_SEARCH_MENU    4
-#define UI_BLOCK_NUMSELECT      8
-#define UI_BLOCK_NO_WIN_CLIP    16      /* don't apply window clipping */ /* was UI_BLOCK_ENTER_OK */
-#define UI_BLOCK_CLIPBOTTOM     32
-#define UI_BLOCK_CLIPTOP        64
-#define UI_BLOCK_MOVEMOUSE_QUIT 128
-#define UI_BLOCK_KEEP_OPEN      256
-#define UI_BLOCK_POPUP          512
-#define UI_BLOCK_OUT_1          1024
-#define UI_BLOCK_NO_FLIP        2048
-#define UI_BLOCK_POPUP_MEMORY   4096
-#define UI_BLOCK_CLIP_EVENTS    8192    /* stop handling mouse events */
+#define UI_BLOCK_LOOP           (1 << 0)
+#define UI_BLOCK_REDRAW         (1 << 1)
+#define UI_BLOCK_SEARCH_MENU    (1 << 2)
+#define UI_BLOCK_NUMSELECT      (1 << 3)
+#define UI_BLOCK_NO_WIN_CLIP    (1 << 4)   /* don't apply window clipping */ /* was UI_BLOCK_ENTER_OK */
+#define UI_BLOCK_CLIPBOTTOM     (1 << 5)
+#define UI_BLOCK_CLIPTOP        (1 << 6)
+#define UI_BLOCK_MOVEMOUSE_QUIT (1 << 7)
+#define UI_BLOCK_KEEP_OPEN      (1 << 8)
+#define UI_BLOCK_POPUP          (1 << 9)
+#define UI_BLOCK_OUT_1          (1 << 10)
+#define UI_BLOCK_NO_FLIP        (1 << 11)
+#define UI_BLOCK_POPUP_MEMORY   (1 << 12)
+#define UI_BLOCK_CLIP_EVENTS    (1 << 13)  /* stop handling mouse events */
 
-/* uiPopupBlockHandle->menuretval */
-#define UI_RETURN_CANCEL     1       /* cancel all menus cascading */
-#define UI_RETURN_OK         2       /* choice made */
-#define UI_RETURN_OUT        4       /* left the menu */
-#define UI_RETURN_OUT_PARENT 8       /* let the parent handle this event */
-#define UI_RETURN_UPDATE     16      /* update the button that opened */
-#define UI_RETURN_POPUP_OK   32      /* popup is ok to be handled */
-
+/* XXX This comment is no more valid! Maybe it is now bits 14-17? */
 /* block->flag bits 12-15 are identical to but->flag bits */
 
+#define UI_BLOCK_LIST_ITEM   (1 << 19)
+
+/* uiPopupBlockHandle->menuretval */
+#define UI_RETURN_CANCEL     (1 << 0)   /* cancel all menus cascading */
+#define UI_RETURN_OK         (1 << 1)   /* choice made */
+#define UI_RETURN_OUT        (1 << 2)   /* left the menu */
+#define UI_RETURN_OUT_PARENT (1 << 3)   /* let the parent handle this event */
+#define UI_RETURN_UPDATE     (1 << 4)   /* update the button that opened */
+#define UI_RETURN_POPUP_OK   (1 << 5)   /* popup is ok to be handled */
+
 /* panel controls */
-#define UI_PNL_SOLID    2
-#define UI_PNL_CLOSE    32
-#define UI_PNL_SCALE    512
+#define UI_PNL_SOLID    (1 << 1)
+#define UI_PNL_CLOSE    (1 << 5)
+#define UI_PNL_SCALE    (1 << 9)
 
 /* warning the first 6 flags are internal */
 /* but->flag */
-#define UI_TEXT_LEFT    64
-#define UI_ICON_LEFT    128
-#define UI_ICON_SUBMENU 256
-#define UI_ICON_PREVIEW 512
+#define UI_TEXT_LEFT         (1 << 6)
+#define UI_ICON_LEFT         (1 << 7)
+#define UI_ICON_SUBMENU      (1 << 8)
+#define UI_ICON_PREVIEW      (1 << 9)
 
-#define UI_TEXT_RIGHT       1024
-#define UI_BUT_NODE_LINK    2048
-#define UI_BUT_NODE_ACTIVE  4096
-#define UI_FLAG_UNUSED      8192
+#define UI_TEXT_RIGHT        (1 << 10)
+#define UI_BUT_NODE_LINK     (1 << 11)
+#define UI_BUT_NODE_ACTIVE   (1 << 12)
+#define UI_BUT_DRAG_LOCK     (1 << 13)
 
 /* button align flag, for drawing groups together */
-#define UI_BUT_ALIGN        (UI_BUT_ALIGN_TOP | UI_BUT_ALIGN_LEFT | UI_BUT_ALIGN_RIGHT | UI_BUT_ALIGN_DOWN)
-#define UI_BUT_ALIGN_TOP    (1 << 14)
-#define UI_BUT_ALIGN_LEFT   (1 << 15)
-#define UI_BUT_ALIGN_RIGHT  (1 << 16)
-#define UI_BUT_ALIGN_DOWN   (1 << 17)
+#define UI_BUT_ALIGN         (UI_BUT_ALIGN_TOP | UI_BUT_ALIGN_LEFT | UI_BUT_ALIGN_RIGHT | UI_BUT_ALIGN_DOWN)
+#define UI_BUT_ALIGN_TOP     (1 << 14)
+#define UI_BUT_ALIGN_LEFT    (1 << 15)
+#define UI_BUT_ALIGN_RIGHT   (1 << 16)
+#define UI_BUT_ALIGN_DOWN    (1 << 17)
 
-#define UI_BUT_DISABLED     (1 << 18)
-#define UI_BUT_COLOR_LOCK   (1 << 19)
-#define UI_BUT_ANIMATED     (1 << 20)
-#define UI_BUT_ANIMATED_KEY (1 << 21)
-#define UI_BUT_DRIVEN       (1 << 22)
-#define UI_BUT_REDALERT     (1 << 23)
-#define UI_BUT_INACTIVE     (1 << 24)
-#define UI_BUT_LAST_ACTIVE  (1 << 25)
-#define UI_BUT_UNDO         (1 << 26)
-#define UI_BUT_IMMEDIATE    (1 << 27)
-#define UI_BUT_NO_TOOLTIP   (1 << 28)
-#define UI_BUT_NO_UTF8      (1 << 29)
+#define UI_BUT_DISABLED      (1 << 18)
+#define UI_BUT_COLOR_LOCK    (1 << 19)
+#define UI_BUT_ANIMATED      (1 << 20)
+#define UI_BUT_ANIMATED_KEY  (1 << 21)
+#define UI_BUT_DRIVEN        (1 << 22)
+#define UI_BUT_REDALERT      (1 << 23)
+#define UI_BUT_INACTIVE      (1 << 24)
+#define UI_BUT_LAST_ACTIVE   (1 << 25)
+#define UI_BUT_UNDO          (1 << 26)
+#define UI_BUT_IMMEDIATE     (1 << 27)
+#define UI_BUT_NO_TOOLTIP    (1 << 28)
+#define UI_BUT_NO_UTF8       (1 << 29)
 
 #define UI_BUT_VEC_SIZE_LOCK (1 << 30) /* used to flag if color hsv-circle should keep luminance */
-#define UI_BUT_COLOR_CUBIC  (1 << 31) /* cubic saturation for the color wheel */
+#define UI_BUT_COLOR_CUBIC   (1 << 31) /* cubic saturation for the color wheel */
 
 #define UI_PANEL_WIDTH          340
 #define UI_COMPACT_PANEL_WIDTH  160
@@ -210,20 +214,14 @@ typedef enum {
 	BUT           = (1 << 9),
 	ROW           = (2 << 9),
 	TOG           = (3 << 9),
-	SLI           = (4 << 9),
 	NUM           = (5 << 9),
 	TEX           = (6 << 9),
-	TOG3          = (7 << 9),
-	TOGR          = (8 << 9),
 	TOGN          = (9 << 9),
 	LABEL         = (10 << 9),
-	MENU          = (11 << 9),
-	ICONROW       = (12 << 9),
+	MENU          = (11 << 9),  /* Dropdown list, actually! */
 	ICONTOG       = (13 << 9),
 	NUMSLI        = (14 << 9),
 	COLOR         = (15 << 9),
-	IDPOIN        = (16 << 9),
-	/* HSVSLI     = (17 << 9), */  /* UNUSED */
 	SCROLL        = (18 << 9),
 	BLOCK         = (19 << 9),
 	BUTM          = (20 << 9),
@@ -231,18 +229,15 @@ typedef enum {
 	LINK          = (22 << 9),
 	INLINK        = (23 << 9),
 	KEYEVT        = (24 << 9),
-	ICONTEXTROW   = (25 << 9),
 	HSVCUBE       = (26 << 9),
-	PULLDOWN      = (27 << 9),
+	PULLDOWN      = (27 << 9),  /* Menu, actually! */
 	ROUNDBOX      = (28 << 9),
-	CHARTAB       = (29 << 9),
 	BUT_COLORBAND = (30 << 9),
 	BUT_NORMAL    = (31 << 9),
 	BUT_CURVE     = (32 << 9),
-	BUT_TOGDUAL   = (33 << 9),
 	ICONTOGN      = (34 << 9),
-	/* FTPREVIEW  = (35 << 9), */  /* UNUSED */
-	NUMABS        = (36 << 9),
+	LISTBOX       = (35 << 9),
+	LISTROW       = (36 << 9),
 	TOGBUT        = (37 << 9),
 	OPTION        = (38 << 9),
 	OPTIONN       = (39 << 9),
@@ -251,8 +246,6 @@ typedef enum {
 	SEARCH_MENU   = (41 << 9),
 	BUT_EXTRA     = (42 << 9),
 	HSVCIRCLE     = (43 << 9),
-	LISTBOX       = (44 << 9),
-	LISTROW       = (45 << 9),
 	HOTKEYEVT     = (46 << 9),
 	BUT_IMAGE     = (47 << 9),
 	HISTOGRAM     = (48 << 9),
@@ -260,7 +253,8 @@ typedef enum {
 	VECTORSCOPE   = (50 << 9),
 	PROGRESSBAR   = (51 << 9),
 	SEARCH_MENU_UNLINK   = (52 << 9),
-	NODESOCKET    = (53 << 9)
+	NODESOCKET    = (53 << 9),
+	LISTLABEL     = (54 << 9),
 } eButType;
 
 #define BUTTYPE     (63 << 9)
@@ -290,9 +284,9 @@ void uiDrawBoxShade(int mode, float minx, float miny, float maxx, float maxy, fl
 void uiDrawBoxVerticalShade(int mode, float minx, float miny, float maxx, float maxy, float rad, float shadeLeft, float shadeRight);
 
 /* state for scrolldrawing */
-#define UI_SCROLL_PRESSED       1
-#define UI_SCROLL_ARROWS        2
-#define UI_SCROLL_NO_OUTLINE    4
+#define UI_SCROLL_PRESSED       (1 << 0)
+#define UI_SCROLL_ARROWS        (1 << 1)
+#define UI_SCROLL_NO_OUTLINE    (1 << 2)
 void uiWidgetScrollDraw(struct uiWidgetColors *wcol, const struct rcti *rect, const struct rcti *slider, int state);
 
 /* Callbacks
@@ -315,7 +309,7 @@ typedef struct uiSearchItems uiSearchItems;
 typedef void (*uiButHandleFunc)(struct bContext *C, void *arg1, void *arg2);
 typedef void (*uiButHandleRenameFunc)(struct bContext *C, void *arg, char *origstr);
 typedef void (*uiButHandleNFunc)(struct bContext *C, void *argN, void *arg2);
-typedef void (*uiButCompleteFunc)(struct bContext *C, char *str, void *arg);
+typedef bool (*uiButCompleteFunc)(struct bContext *C, char *str, void *arg);
 typedef void (*uiButSearchFunc)(const struct bContext *C, void *arg, const char *str, uiSearchItems *items);
 typedef void (*uiBlockHandleFunc)(struct bContext *C, void *arg, int event);
 
@@ -333,7 +327,11 @@ typedef void (*uiMenuHandleFunc)(struct bContext *C, void *arg, int event);
 
 typedef struct uiPopupMenu uiPopupMenu;
 
-uiPopupMenu *uiPupMenuBegin(struct bContext *C, const char *title, int icon);
+struct uiPopupMenu *uiPupMenuBegin(struct bContext *C, const char *title, int icon)
+#ifdef __GNUC__
+__attribute__((nonnull))
+#endif
+;
 void uiPupMenuEnd(struct bContext *C, struct uiPopupMenu *head);
 struct uiLayout *uiPupMenuLayout(uiPopupMenu *head);
 
@@ -540,7 +538,8 @@ enum {
 	BUT_GET_TIP,
 	BUT_GET_RNA_TIP,
 	BUT_GET_RNAENUM_TIP,
-	BUT_GET_OP_KEYMAP
+	BUT_GET_OP_KEYMAP,
+	BUT_GET_PROP_KEYMAP
 };
 
 typedef struct uiStringInfo {
@@ -551,7 +550,11 @@ typedef struct uiStringInfo {
 /* Note: Expects pointers to uiStringInfo structs as parameters.
  *       Will fill them with translated strings, when possible.
  *       Strings in uiStringInfo must be MEM_freeN'ed by caller. */
-void uiButGetStrInfo(struct bContext *C, uiBut *but, ...);
+void uiButGetStrInfo(struct bContext *C, uiBut *but, ...)
+#ifdef __GNUC__
+__attribute__((sentinel))
+#endif
+;
 
 /* Edit i18n stuff. */
 /* Name of the main py op from i18n addon. */
@@ -560,7 +563,6 @@ void uiButGetStrInfo(struct bContext *C, uiBut *but, ...);
 /* Special Buttons
  *
  * Buttons with a more specific purpose:
- * - IDPoinBut: for creating buttons that work on a pointer to an ID block.
  * - MenuBut: buttons that popup a menu (in headers usually).
  * - PulldownBut: like MenuBut, but creating a uiBlock (for compatibility).
  * - BlockBut: buttons that popup a block with more buttons.
@@ -568,25 +570,19 @@ void uiButGetStrInfo(struct bContext *C, uiBut *but, ...);
  * - PickerButtons: buttons like the color picker (for code sharing).
  * - AutoButR: RNA property button with type automatically defined. */
 
-#define UI_ID_RENAME        1
-#define UI_ID_BROWSE        2
-#define UI_ID_ADD_NEW       4
-#define UI_ID_OPEN          8
-#define UI_ID_ALONE         16
-#define UI_ID_DELETE        32
-#define UI_ID_LOCAL         64
-#define UI_ID_AUTO_NAME     128
-#define UI_ID_FAKE_USER     256
-#define UI_ID_PIN           512
-#define UI_ID_BROWSE_RENDER 1024
-#define UI_ID_PREVIEWS      2048
+#define UI_ID_RENAME        (1 << 0)
+#define UI_ID_BROWSE        (1 << 1)
+#define UI_ID_ADD_NEW       (1 << 2)
+#define UI_ID_OPEN          (1 << 3)
+#define UI_ID_ALONE         (1 << 4)
+#define UI_ID_DELETE        (1 << 5)
+#define UI_ID_LOCAL         (1 << 6)
+#define UI_ID_AUTO_NAME     (1 << 7)
+#define UI_ID_FAKE_USER     (1 << 8)
+#define UI_ID_PIN           (1 << 9)
+#define UI_ID_BROWSE_RENDER (1 << 10)
+#define UI_ID_PREVIEWS      (1 << 11)
 #define UI_ID_FULL          (UI_ID_RENAME | UI_ID_BROWSE | UI_ID_ADD_NEW | UI_ID_OPEN | UI_ID_ALONE | UI_ID_DELETE | UI_ID_LOCAL)
-
-typedef void (*uiIDPoinFuncFP)(struct bContext *C, const char *str, struct ID **idpp);
-typedef void (*uiIDPoinFunc)(struct bContext *C, struct ID *id, int event);
-
-uiBut *uiDefIDPoinBut(uiBlock *block, uiIDPoinFuncFP func, short blocktype, int retval, const char *str,
-                      int x, int y, short width, short height, void *idpp, const char *tip);
 
 int uiIconFromID(struct ID *id);
 
@@ -605,6 +601,9 @@ uiBut *uiDefKeyevtButS(uiBlock *block, int retval, const char *str, int x, int y
 uiBut *uiDefHotKeyevtButS(uiBlock *block, int retval, const char *str, int x, int y, short width, short height, short *keypoin, short *modkeypoin, const char *tip);
 
 uiBut *uiDefSearchBut(uiBlock *block, void *arg, int retval, int icon, int maxlen, int x, int y, short width, short height, float a1, float a2, const char *tip);
+uiBut *uiDefSearchButO_ptr(uiBlock *block, struct wmOperatorType *ot, IDProperty *properties,
+                           void *arg, int retval, int icon, int maxlen, int x, int y,
+                           short width, short height, float a1, float a2, const char *tip);
 
 uiBut *uiDefAutoButR(uiBlock *block, struct PointerRNA *ptr, struct PropertyRNA *prop, int index, const char *name, int icon, int x1, int y1, int x2, int y2);
 int uiDefAutoButsRNA(uiLayout *layout, struct PointerRNA *ptr, bool (*check_prop)(struct PointerRNA *, struct PropertyRNA *), const char label_align);
@@ -626,15 +625,17 @@ void    uiButSetSearchFunc(uiBut *but,        uiButSearchFunc sfunc, void *arg1,
 /* height in pixels, it's using hardcoded values still */
 int     uiSearchBoxHeight(void);
 int     uiSearchBoxWidth(void);
+/* check if a string is in an existing search box */
+int     uiSearchItemFindIndex(uiSearchItems *items, const char *name);
 
 void    uiBlockSetHandleFunc(uiBlock *block,    uiBlockHandleFunc func, void *arg);
 void    uiBlockSetButmFunc(uiBlock *block,    uiMenuHandleFunc func, void *arg);
 void    uiBlockSetFunc(uiBlock *block,    uiButHandleFunc func, void *arg1, void *arg2);
-void    uiBlockSetNFunc(uiBlock *block,    uiButHandleFunc func, void *argN, void *arg2);
+void    uiBlockSetNFunc(uiBlock *block,    uiButHandleNFunc funcN, void *argN, void *arg2);
 
 void    uiButSetRenameFunc(uiBut *but,        uiButHandleRenameFunc func, void *arg1);
 void    uiButSetFunc(uiBut *but,        uiButHandleFunc func, void *arg1, void *arg2);
-void    uiButSetNFunc(uiBut *but,        uiButHandleNFunc func, void *argN, void *arg2);
+void    uiButSetNFunc(uiBut *but,        uiButHandleNFunc funcN, void *argN, void *arg2);
 
 void    uiButSetCompleteFunc(uiBut *but,        uiButCompleteFunc func, void *arg);
 
@@ -657,7 +658,7 @@ typedef struct AutoComplete AutoComplete;
 
 AutoComplete *autocomplete_begin(const char *startname, size_t maxlen);
 void autocomplete_do_name(AutoComplete *autocpl, const char *name);
-void autocomplete_end(AutoComplete *autocpl, char *autoname);
+bool autocomplete_end(AutoComplete *autocpl, char *autoname);
 
 /* Panels
  *
@@ -682,6 +683,7 @@ void uiScalePanels(struct ARegion *ar, float new_width);
 void UI_add_region_handlers(struct ListBase *handlers);
 void UI_add_popup_handlers(struct bContext *C, struct ListBase *handlers, uiPopupBlockHandle *popup);
 void UI_remove_popup_handlers(struct ListBase *handlers, uiPopupBlockHandle *popup);
+void UI_remove_popup_handlers_all(struct bContext *C, struct ListBase *handlers);
 
 /* Module
  *
@@ -720,15 +722,15 @@ void UI_exit(void);
 #define UI_LAYOUT_ALIGN_CENTER  2
 #define UI_LAYOUT_ALIGN_RIGHT   3
 
-#define UI_ITEM_O_RETURN_PROPS  1
-#define UI_ITEM_R_EXPAND        2
-#define UI_ITEM_R_SLIDER        4
-#define UI_ITEM_R_TOGGLE        8
-#define UI_ITEM_R_ICON_ONLY     16
-#define UI_ITEM_R_EVENT         32
-#define UI_ITEM_R_FULL_EVENT    64
-#define UI_ITEM_R_NO_BG         128
-#define UI_ITEM_R_IMMEDIATE     256
+#define UI_ITEM_O_RETURN_PROPS  (1 << 0)
+#define UI_ITEM_R_EXPAND        (1 << 1)
+#define UI_ITEM_R_SLIDER        (1 << 2)
+#define UI_ITEM_R_TOGGLE        (1 << 3)
+#define UI_ITEM_R_ICON_ONLY     (1 << 4)
+#define UI_ITEM_R_EVENT         (1 << 5)
+#define UI_ITEM_R_FULL_EVENT    (1 << 6)
+#define UI_ITEM_R_NO_BG         (1 << 7)
+#define UI_ITEM_R_IMMEDIATE     (1 << 8)
 
 /* uiLayoutOperatorButs flags */
 #define UI_LAYOUT_OP_SHOW_TITLE 1
@@ -741,13 +743,13 @@ void UI_exit(void);
  * 8------4 */
 
 enum {
-	UI_CNR_TOP_LEFT = 1,
-	UI_CNR_TOP_RIGHT = 2,
-	UI_CNR_BOTTOM_RIGHT = 4,
-	UI_CNR_BOTTOM_LEFT = 8,
+	UI_CNR_TOP_LEFT     = (1 << 0),
+	UI_CNR_TOP_RIGHT    = (1 << 1),
+	UI_CNR_BOTTOM_RIGHT = (1 << 2),
+	UI_CNR_BOTTOM_LEFT  = (1 << 3),
 	/* just for convenience */
-	UI_CNR_NONE = 0,
-	UI_CNR_ALL = (UI_CNR_TOP_LEFT | UI_CNR_TOP_RIGHT | UI_CNR_BOTTOM_RIGHT | UI_CNR_BOTTOM_LEFT)
+	UI_CNR_NONE         = 0,
+	UI_CNR_ALL          = (UI_CNR_TOP_LEFT | UI_CNR_TOP_RIGHT | UI_CNR_BOTTOM_RIGHT | UI_CNR_BOTTOM_LEFT)
 };
 
 /* not apart of the corner flags but mixed in some functions  */
@@ -852,6 +854,7 @@ void uiTemplateTextureShow(uiLayout *layout, struct bContext *C, struct PointerR
 void uiTemplateMovieClip(struct uiLayout *layout, struct bContext *C, struct PointerRNA *ptr, const char *propname, int compact);
 void uiTemplateTrack(struct uiLayout *layout, struct PointerRNA *ptr, const char *propname);
 void uiTemplateMarker(struct uiLayout *layout, struct PointerRNA *ptr, const char *propname, PointerRNA *userptr, PointerRNA *trackptr, int cmpact);
+void uiTemplateMovieclipInformation(struct uiLayout *layout, struct PointerRNA *ptr, const char *propname, struct PointerRNA *userptr);
 
 void uiTemplateColorspaceSettings(struct uiLayout *layout, struct PointerRNA *ptr, const char *propname);
 void uiTemplateColormanagedViewSettings(struct uiLayout *layout, struct bContext *C, struct PointerRNA *ptr, const char *propname);
@@ -886,7 +889,7 @@ void uiItemV(uiLayout *layout, const char *name, int icon, int argval); /* value
 void uiItemS(uiLayout *layout); /* separator */
 
 void uiItemMenuF(uiLayout *layout, const char *name, int icon, uiMenuCreateFunc func, void *arg);
-void uiItemMenuEnumO(uiLayout *layout, const char *opname, const char *propname, const char *name, int icon);
+void uiItemMenuEnumO(uiLayout *layout, struct bContext *C, const char *opname, const char *propname, const char *name, int icon);
 void uiItemMenuEnumR(uiLayout *layout, struct PointerRNA *ptr, const char *propname, const char *name, int icon);
 
 /* UI Operators */

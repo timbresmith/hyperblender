@@ -237,7 +237,7 @@ static int build_hull(SkinOutput *so, Frame **frames, int totframe)
 
 	/* Deselect all faces so that only new hull output faces are
 	 * selected after the operator is run */
-	BM_mesh_elem_hflag_disable_all(bm, BM_ALL, BM_ELEM_SELECT, 0);
+	BM_mesh_elem_hflag_disable_all(bm, BM_ALL_NOLOOP, BM_ELEM_SELECT, false);
 
 	BMO_op_initf(bm, &op, (BMO_FLAG_DEFAULTS & ~BMO_FLAG_RESPECT_HIDE),
 	             "convex_hull input=%hv", BM_ELEM_TAG);
@@ -288,7 +288,7 @@ static int build_hull(SkinOutput *so, Frame **frames, int totframe)
 	
 	/* Remove triangles that would fill the original frames -- skip if
 	 * frame is partially detached */
-	BM_mesh_elem_hflag_disable_all(bm, BM_ALL, BM_ELEM_TAG, FALSE);
+	BM_mesh_elem_hflag_disable_all(bm, BM_ALL_NOLOOP, BM_ELEM_TAG, false);
 	for (i = 0; i < totframe; i++) {
 		Frame *frame = frames[i];
 		if (!frame->detached) {
@@ -411,7 +411,7 @@ static Frame **collect_hull_frames(int v, SkinNode *frames,
 	int nbr, i;
 
 	(*tothullframe) = emap[v].count;
-	hull_frames = MEM_callocN(sizeof(Frame * *) * (*tothullframe),
+	hull_frames = MEM_callocN(sizeof(Frame *) * (*tothullframe),
 	                          "hull_from_frames.hull_frames");
 	i = 0;
 	for (nbr = 0; nbr < emap[v].count; nbr++) {
@@ -690,7 +690,7 @@ static void build_emats_stack(BLI_Stack *stack, int *visited_e, EMat *emat,
 	/* Add neighbors to stack */
 	for (i = 0; i < emap[v].count; i++) {
 		/* Add neighbors to stack */
-		memcpy(stack_elem.mat, emat[e].mat, sizeof(float) * 3 * 3);
+		copy_m3_m3(stack_elem.mat, emat[e].mat);
 		stack_elem.e = emap[v].indices[i];
 		stack_elem.parent_v = v;
 		BLI_stack_push(stack, &stack_elem);
@@ -1039,7 +1039,7 @@ static int isect_ray_poly(const float ray_start[3],
 			v_first = v;
 		else if (v_prev != v_first) {
 			float dist;
-			int curhit;
+			bool curhit;
 			
 			curhit = isect_ray_tri_v3(ray_start, ray_dir,
 			                          v_first->co, v_prev->co, v->co,
@@ -1805,7 +1805,7 @@ static DerivedMesh *base_skin(DerivedMesh *origdm,
 	BM_mesh_free(bm);
 
 	CDDM_calc_edges(result);
-	CDDM_calc_normals(result);
+	result->dirty |= DM_DIRTY_NORMALS;
 
 	skin_set_orig_indices(result);
 
@@ -1852,18 +1852,6 @@ static void copyData(ModifierData *md, ModifierData *target)
 	*tsmd = *smd;
 }
 
-static DerivedMesh *applyModifierEM(ModifierData *md,
-                                    Object *UNUSED(ob),
-                                    struct BMEditMesh *UNUSED(em),
-                                    DerivedMesh *dm)
-{
-	DerivedMesh *result;
-
-	if (!(result = final_skin((SkinModifierData *)md, dm)))
-		return dm;
-	return result;
-}
-
 static DerivedMesh *applyModifier(ModifierData *md,
                                   Object *UNUSED(ob),
                                   DerivedMesh *dm,
@@ -1895,7 +1883,7 @@ ModifierTypeInfo modifierType_Skin = {
 	/* deformVertsEM */     NULL,
 	/* deformMatricesEM */  NULL,
 	/* applyModifier */     applyModifier,
-	/* applyModifierEM */   applyModifierEM,
+	/* applyModifierEM */   NULL,
 	/* initData */          initData,
 	/* requiredDataMask */  requiredDataMask,
 	/* freeData */          NULL,

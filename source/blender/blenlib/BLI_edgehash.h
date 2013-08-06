@@ -15,11 +15,6 @@
  * along with this program; if not, write to the Free Software Foundation,
  * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
  *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- *
- * The Original Code is: none of this file.
- *
  * Contributor(s): Daniel Dunbar
  *
  * ***** END GPL LICENSE BLOCK *****
@@ -62,7 +57,7 @@ void           *BLI_edgehash_lookup(EdgeHash *eh, unsigned int v0, unsigned int 
 void          **BLI_edgehash_lookup_p(EdgeHash *eh, unsigned int v0, unsigned int v1);
 
 /* Return boolean true/false if edge (v0,v1) in hash. */
-int             BLI_edgehash_haskey(EdgeHash *eh, unsigned int v0, unsigned int v1);
+bool            BLI_edgehash_haskey(EdgeHash *eh, unsigned int v0, unsigned int v1);
 
 /* Return number of keys in hash. */
 int             BLI_edgehash_size(EdgeHash *eh);
@@ -95,6 +90,6 @@ void                BLI_edgehashIterator_setValue(EdgeHashIterator *ehi, void *v
 void                BLI_edgehashIterator_step(EdgeHashIterator *ehi);
 
 /* Determine if an iterator is done. */
-int                 BLI_edgehashIterator_isDone(EdgeHashIterator *ehi);
+bool                BLI_edgehashIterator_isDone(EdgeHashIterator *ehi);
 
 #endif

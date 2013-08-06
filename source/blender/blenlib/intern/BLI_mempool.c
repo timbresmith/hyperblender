@@ -43,6 +43,14 @@
 #include <string.h>
 #include <stdlib.h>
 
+#ifdef __GNUC__
+#  pragma GCC diagnostic error "-Wsign-conversion"
+#  if (__GNUC__ * 100 + __GNUC_MINOR__) >= 406  /* gcc4.6+ only */
+#    pragma GCC diagnostic error "-Wsign-compare"
+#    pragma GCC diagnostic error "-Wconversion"
+#  endif
+#endif
+
 /* note: copied from BLO_blend_defs.h, don't use here because we're in BLI */
 #ifdef __BIG_ENDIAN__
 /* Big Endian */
@@ -98,12 +106,12 @@ BLI_mempool *BLI_mempool_create(int esize, int totelem, int pchunk, int flag)
 	}
 
 	/* set the elem size */
-	if (esize < MEMPOOL_ELEM_SIZE_MIN) {
-		esize = MEMPOOL_ELEM_SIZE_MIN;
+	if (esize < (int)MEMPOOL_ELEM_SIZE_MIN) {
+		esize = (int)MEMPOOL_ELEM_SIZE_MIN;
 	}
 
 	if (flag & BLI_MEMPOOL_ALLOW_ITER) {
-		pool->esize = MAX2(esize, sizeof(BLI_freenode));
+		pool->esize = MAX2(esize, (int)sizeof(BLI_freenode));
 	}
 	else {
 		pool->esize = esize;
@@ -127,11 +135,11 @@ BLI_mempool *BLI_mempool_create(int esize, int totelem, int pchunk, int flag)
 
 		if (flag & BLI_MEMPOOL_SYSMALLOC) {
 			mpchunk = malloc(sizeof(BLI_mempool_chunk));
-			mpchunk->data = malloc(pool->csize);
+			mpchunk->data = malloc((size_t)pool->csize);
 		}
 		else {
 			mpchunk = MEM_mallocN(sizeof(BLI_mempool_chunk), "BLI_Mempool Chunk");
-			mpchunk->data = MEM_mallocN(pool->csize, "BLI Mempool Chunk Data");
+			mpchunk->data = MEM_mallocN((size_t)pool->csize, "BLI Mempool Chunk Data");
 		}
 
 		mpchunk->next = mpchunk->prev = NULL;
@@ -190,11 +198,11 @@ void *BLI_mempool_alloc(BLI_mempool *pool)
 
 		if (pool->flag & BLI_MEMPOOL_SYSMALLOC) {
 			mpchunk       = malloc(sizeof(BLI_mempool_chunk));
-			mpchunk->data = malloc(pool->csize);
+			mpchunk->data = malloc((size_t)pool->csize);
 		}
 		else {
 			mpchunk       = MEM_mallocN(sizeof(BLI_mempool_chunk), "BLI_Mempool Chunk");
-			mpchunk->data = MEM_mallocN(pool->csize, "BLI_Mempool Chunk Data");
+			mpchunk->data = MEM_mallocN((size_t)pool->csize, "BLI_Mempool Chunk Data");
 		}
 
 		mpchunk->next = mpchunk->prev = NULL;
@@ -237,7 +245,7 @@ void *BLI_mempool_alloc(BLI_mempool *pool)
 void *BLI_mempool_calloc(BLI_mempool *pool)
 {
 	void *retval = BLI_mempool_alloc(pool);
-	memset(retval, 0, pool->esize);
+	memset(retval, 0, (size_t)pool->esize);
 	return retval;
 }
 
@@ -326,27 +334,56 @@ void *BLI_mempool_findelem(BLI_mempool *pool, int index)
 }
 
 /**
+ * Fill in \a data with pointers to each element of the mempool,
+ * to create lookup table.
+ *
  * \param data array of pointers at least the size of 'pool->totused'
  */
-void BLI_mempool_as_array(BLI_mempool *pool, void **data)
+void BLI_mempool_as_table(BLI_mempool *pool, void **data)
 {
 	BLI_mempool_iter iter;
 	void *elem;
 	void **p = data;
 	BLI_assert(pool->flag & BLI_MEMPOOL_ALLOW_ITER);
 	BLI_mempool_iternew(pool, &iter);
-	for (elem = BLI_mempool_iterstep(&iter); elem; elem = BLI_mempool_iterstep(&iter)) {
+	while ((elem = BLI_mempool_iterstep(&iter))) {
 		*p++ = elem;
 	}
 	BLI_assert((p - data) == pool->totused);
 }
 
 /**
- * Allocate an array from the mempool.
+ * A version of #BLI_mempool_as_table that allocates and returns the data.
+ */
+void **BLI_mempool_as_tableN(BLI_mempool *pool, const char *allocstr)
+{
+	void **data = MEM_mallocN((size_t)pool->totused * sizeof(void *), allocstr);
+	BLI_mempool_as_table(pool, data);
+	return data;
+}
+
+/**
+ * Fill in \a data with the contents of the mempool.
+ */
+void BLI_mempool_as_array(BLI_mempool *pool, void *data)
+{
+	BLI_mempool_iter iter;
+	char *elem, *p = data;
+	BLI_assert(pool->flag & BLI_MEMPOOL_ALLOW_ITER);
+	BLI_mempool_iternew(pool, &iter);
+	while ((elem = BLI_mempool_iterstep(&iter))) {
+		memcpy(p, elem, (size_t)pool->esize);
+		p += pool->esize;
+	}
+	BLI_assert((p - (char *)data) == pool->totused * pool->esize);
+}
+
+/**
+ * A version of #BLI_mempool_as_array that allocates and returns the data.
  */
 void *BLI_mempool_as_arrayN(BLI_mempool *pool, const char *allocstr)
 {
-	void *data = MEM_mallocN(BLI_mempool_count(pool) * pool->esize, allocstr);
+	char *data = MEM_mallocN((size_t)(pool->totused * pool->esize), allocstr);
 	BLI_mempool_as_array(pool, data);
 	return data;
 }
@@ -429,19 +466,22 @@ void *BLI_mempool_iterstep(BLI_mempool_iter *iter)
 void BLI_mempool_destroy(BLI_mempool *pool)
 {
 	BLI_mempool_chunk *mpchunk = NULL;
+	BLI_mempool_chunk *mpchunk_next;
 
 	if (pool->flag & BLI_MEMPOOL_SYSMALLOC) {
-		for (mpchunk = pool->chunks.first; mpchunk; mpchunk = mpchunk->next) {
+		for (mpchunk = pool->chunks.first; mpchunk; mpchunk = mpchunk_next) {
+			mpchunk_next = mpchunk->next;
 			free(mpchunk->data);
+			free(mpchunk);
 		}
-		BLI_freelist(&(pool->chunks));
 		free(pool);
 	}
 	else {
-		for (mpchunk = pool->chunks.first; mpchunk; mpchunk = mpchunk->next) {
+		for (mpchunk = pool->chunks.first; mpchunk; mpchunk = mpchunk_next) {
+			mpchunk_next = mpchunk->next;
 			MEM_freeN(mpchunk->data);
+			MEM_freeN(mpchunk);
 		}
-		BLI_freelistN(&(pool->chunks));
 		MEM_freeN(pool);
 	}
 }

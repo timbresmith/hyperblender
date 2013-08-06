@@ -33,7 +33,6 @@
 #define __DNA_MESH_TYPES_H__
 
 #include "DNA_defs.h"
-#include "DNA_listBase.h"
 #include "DNA_ID.h"
 #include "DNA_customdata_types.h"
 
@@ -90,7 +89,7 @@ typedef struct Mesh {
 	struct MCol *mcol;
 	struct Mesh *texcomesh;
 
-	/* When the object is available, the preferred access method is: BMEdit_FromObject(ob) */
+	/* When the object is available, the preferred access method is: BKE_editmesh_from_object(ob) */
 	struct BMEditMesh *edit_btmesh;	/* not saved in file! */
 
 	struct CustomData vdata, edata, fdata;
@@ -187,7 +186,7 @@ typedef struct TFace {
 #define ME_DRAWNORMALS	(1 << 2)
 #define ME_DRAW_VNORMALS (1 << 3)
 
-// #define ME_ALLEDGES		(1 << 4)
+#define ME_DRAWEIGHT	(1 << 4)
 #define ME_HIDDENEDGES  (1 << 5)
 
 #define ME_DRAWCREASES	(1 << 6)
@@ -206,6 +205,9 @@ typedef struct TFace {
 #define ME_DRAW_FREESTYLE_EDGE (1 << 15)
 #define ME_DRAW_FREESTYLE_FACE (1 << 16)
 
+/* draw stats */
+#define ME_DRAW_STATVIS (1 << 17)
+
 /* Subsurf Type */
 #define ME_CC_SUBSURF 		0
 #define ME_SIMPLE_SUBSURF 	1
@@ -217,9 +219,6 @@ typedef struct TFace {
 
 #define USE_BMESH_SAVE_AS_COMPAT
 #define USE_BMESH_SAVE_WITHOUT_MFACE
-
-/* enable this to calculate mpoly normal layer and face origindex mapping */
-// #define USE_BMESH_MPOLY_NORMALS
 
 /* enable this so meshes get tessfaces calculated by default */
 // #define USE_TESSFACE_DEFAULT

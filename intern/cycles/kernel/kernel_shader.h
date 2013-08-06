@@ -38,7 +38,12 @@ CCL_NAMESPACE_BEGIN
 /* ShaderData setup from incoming ray */
 
 #ifdef __OBJECT_MOTION__
-__device_noinline void shader_setup_object_transforms(KernelGlobals *kg, ShaderData *sd, float time)
+#if defined(__KERNEL_CUDA_VERSION__) && __KERNEL_CUDA_VERSION__ <= 42
+__device_noinline
+#else
+__device
+#endif
+void shader_setup_object_transforms(KernelGlobals *kg, ShaderData *sd, float time)
 {
 	/* note that this is a separate non-inlined function to work around crash
 	 * on CUDA sm 2.0, otherwise kernel execution crashes (compiler bug?) */
@@ -53,8 +58,13 @@ __device_noinline void shader_setup_object_transforms(KernelGlobals *kg, ShaderD
 }
 #endif
 
-__device_noinline void shader_setup_from_ray(KernelGlobals *kg, ShaderData *sd,
-	const Intersection *isect, const Ray *ray)
+#if defined(__KERNEL_CUDA_VERSION__) && __KERNEL_CUDA_VERSION__ <= 42
+__device_noinline
+#else
+__device
+#endif
+void shader_setup_from_ray(KernelGlobals *kg, ShaderData *sd,
+	const Intersection *isect, const Ray *ray, int bounce)
 {
 #ifdef __INSTANCING__
 	sd->object = (isect->object == ~0)? kernel_tex_fetch(__prim_object, isect->prim): isect->object;
@@ -70,6 +80,7 @@ __device_noinline void shader_setup_from_ray(KernelGlobals *kg, ShaderData *sd,
 
 	sd->prim = kernel_tex_fetch(__prim_index, isect->prim);
 	sd->ray_length = isect->t;
+	sd->ray_depth = bounce;
 
 #ifdef __HAIR__
 	if(kernel_tex_fetch(__prim_segment, isect->prim) != ~0) {
@@ -96,6 +107,9 @@ __device_noinline void shader_setup_from_ray(KernelGlobals *kg, ShaderData *sd,
 
 #ifdef __HAIR__
 		sd->segment = ~0;
+		/*elements for minimum hair width using transparency bsdf*/
+		/*sd->curve_transparency = 0.0f;*/
+		/*sd->curve_radius = 0.0f;*/
 #endif
 
 #ifdef __UV__
@@ -257,9 +271,14 @@ __device_inline void shader_setup_from_subsurface(KernelGlobals *kg, ShaderData 
 
 /* ShaderData setup from position sampled on mesh */
 
-__device_noinline void shader_setup_from_sample(KernelGlobals *kg, ShaderData *sd,
+#if defined(__KERNEL_CUDA_VERSION__) && __KERNEL_CUDA_VERSION__ <= 42
+__device_noinline
+#else
+__device
+#endif
+void shader_setup_from_sample(KernelGlobals *kg, ShaderData *sd,
 	const float3 P, const float3 Ng, const float3 I,
-	int shader, int object, int prim, float u, float v, float t, float time, int segment = ~0)
+	int shader, int object, int prim, float u, float v, float t, float time, int bounce, int segment)
 {
 	/* vectors */
 	sd->P = P;
@@ -282,6 +301,7 @@ __device_noinline void shader_setup_from_sample(KernelGlobals *kg, ShaderData *s
 	sd->v = v;
 #endif
 	sd->ray_length = t;
+	sd->ray_depth = bounce;
 
 	/* detect instancing, for non-instanced the object index is -object-1 */
 #ifdef __INSTANCING__
@@ -367,14 +387,10 @@ __device_noinline void shader_setup_from_sample(KernelGlobals *kg, ShaderData *s
 
 #ifdef __RAY_DIFFERENTIALS__
 	/* no ray differentials here yet */
-	sd->dP.dx = make_float3(0.0f, 0.0f, 0.0f);
-	sd->dP.dy = make_float3(0.0f, 0.0f, 0.0f);
-	sd->dI.dx = make_float3(0.0f, 0.0f, 0.0f);
-	sd->dI.dy = make_float3(0.0f, 0.0f, 0.0f);
-	sd->du.dx = 0.0f;
-	sd->du.dy = 0.0f;
-	sd->dv.dx = 0.0f;
-	sd->dv.dy = 0.0f;
+	sd->dP = differential3_zero();
+	sd->dI = differential3_zero();
+	sd->du = differential_zero();
+	sd->dv = differential_zero();
 #endif
 }
 
@@ -394,24 +410,25 @@ __device void shader_setup_from_displace(KernelGlobals *kg, ShaderData *sd,
 
 	/* watch out: no instance transform currently */
 
-	shader_setup_from_sample(kg, sd, P, Ng, I, shader, object, prim, u, v, 0.0f, TIME_INVALID);
+	shader_setup_from_sample(kg, sd, P, Ng, I, shader, object, prim, u, v, 0.0f, TIME_INVALID, 0, ~0);
 }
 
 /* ShaderData setup from ray into background */
 
-__device_inline void shader_setup_from_background(KernelGlobals *kg, ShaderData *sd, const Ray *ray)
+__device_inline void shader_setup_from_background(KernelGlobals *kg, ShaderData *sd, const Ray *ray, int bounce)
 {
 	/* vectors */
 	sd->P = ray->D;
-	sd->N = -sd->P;
-	sd->Ng = -sd->P;
-	sd->I = -sd->P;
+	sd->N = -ray->D;
+	sd->Ng = -ray->D;
+	sd->I = -ray->D;
 	sd->shader = kernel_data.background.shader;
 	sd->flag = kernel_tex_fetch(__shader_flag, (sd->shader & SHADER_MASK)*2);
 #ifdef __OBJECT_MOTION__
 	sd->time = ray->time;
 #endif
 	sd->ray_length = 0.0f;
+	sd->ray_depth = bounce;
 
 #ifdef __INSTANCING__
 	sd->object = ~0;
@@ -435,11 +452,13 @@ __device_inline void shader_setup_from_background(KernelGlobals *kg, ShaderData 
 	/* differentials */
 	sd->dP = ray->dD;
 	differential_incoming(&sd->dI, sd->dP);
-	sd->du.dx = 0.0f;
-	sd->du.dy = 0.0f;
-	sd->dv.dx = 0.0f;
-	sd->dv.dy = 0.0f;
+	sd->du = differential_zero();
+	sd->dv = differential_zero();
 #endif
+
+	/* for NDC coordinates */
+	sd->ray_P = ray->P;
+	sd->ray_dP = ray->dP;
 }
 
 /* BSDF */
@@ -666,6 +685,27 @@ __device float3 shader_bsdf_transmission(KernelGlobals *kg, ShaderData *sd)
 #endif
 }
 
+__device float3 shader_bsdf_subsurface(KernelGlobals *kg, ShaderData *sd)
+{
+#ifdef __MULTI_CLOSURE__
+	float3 eval = make_float3(0.0f, 0.0f, 0.0f);
+
+	for(int i = 0; i< sd->num_closure; i++) {
+		ShaderClosure *sc = &sd->closure[i];
+
+		if(CLOSURE_IS_BSSRDF(sc->type))
+			eval += sc->weight;
+	}
+
+	return eval;
+#else
+	if(CLOSURE_IS_BSSRDF(sd->closure.type))
+		return sd->closure.weight;
+	else
+		return make_float3(0.0f, 0.0f, 0.0f);
+#endif
+}
+
 __device float3 shader_bsdf_ao(KernelGlobals *kg, ShaderData *sd, float ao_factor, float3 *N)
 {
 #ifdef __MULTI_CLOSURE__
@@ -772,8 +812,9 @@ __device void shader_eval_surface(KernelGlobals *kg, ShaderData *sd,
 #ifdef __SVM__
 		svm_eval_nodes(kg, sd, SHADER_TYPE_SURFACE, randb, path_flag);
 #else
-		bsdf_diffuse_setup(&sd->closure);
 		sd->closure.weight = make_float3(0.8f, 0.8f, 0.8f);
+		sd->closure.N = sd->N;
+		sd->flag |= bsdf_diffuse_setup(&sd->closure);
 #endif
 	}
 }
@@ -889,7 +930,7 @@ __device bool shader_transparent_shadow(KernelGlobals *kg, Intersection *isect)
 #endif
 	int flag = kernel_tex_fetch(__shader_flag, (shader & SHADER_MASK)*2);
 
-	return (flag & SD_HAS_SURFACE_TRANSPARENT) != 0;
+	return (flag & SD_HAS_TRANSPARENT_SHADOW) != 0;
 }
 #endif
 

@@ -154,6 +154,16 @@ __device_inline void object_dir_transform(KernelGlobals *kg, ShaderData *sd, flo
 #endif
 }
 
+__device_inline void object_inverse_dir_transform(KernelGlobals *kg, ShaderData *sd, float3 *D)
+{
+#ifdef __OBJECT_MOTION__
+	*D = transform_direction(&sd->ob_itfm, *D);
+#else
+	Transform tfm = object_fetch_transform(kg, sd->object, OBJECT_INVERSE_TRANSFORM);
+	*D = transform_direction(&tfm, *D);
+#endif
+}
+
 __device_inline float3 object_location(KernelGlobals *kg, ShaderData *sd)
 {
 	if(sd->object == ~0)
@@ -201,7 +211,7 @@ __device_inline uint object_particle_id(KernelGlobals *kg, int object)
 
 	int offset = object*OBJECT_SIZE + OBJECT_PROPERTIES;
 	float4 f = kernel_tex_fetch(__objects, offset);
-	return __float_as_int(f.w);
+	return __float_as_uint(f.w);
 }
 
 __device_inline float3 object_dupli_generated(KernelGlobals *kg, int object)

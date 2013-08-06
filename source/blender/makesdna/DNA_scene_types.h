@@ -209,34 +209,37 @@ typedef struct SceneRenderLayer {
 #define SCE_LAY_NEG_ZMASK	0x80000
 
 /* srl->passflag */
-#define SCE_PASS_COMBINED			(1<<0)
-#define SCE_PASS_Z					(1<<1)
-#define SCE_PASS_RGBA				(1<<2)
-#define SCE_PASS_DIFFUSE			(1<<3)
-#define SCE_PASS_SPEC				(1<<4)
-#define SCE_PASS_SHADOW				(1<<5)
-#define SCE_PASS_AO					(1<<6)
-#define SCE_PASS_REFLECT			(1<<7)
-#define SCE_PASS_NORMAL				(1<<8)
-#define SCE_PASS_VECTOR				(1<<9)
-#define SCE_PASS_REFRACT			(1<<10)
-#define SCE_PASS_INDEXOB			(1<<11)
-#define SCE_PASS_UV					(1<<12)
-#define SCE_PASS_INDIRECT			(1<<13)
-#define SCE_PASS_MIST				(1<<14)
-#define SCE_PASS_RAYHITS			(1<<15)
-#define SCE_PASS_EMIT				(1<<16)
-#define SCE_PASS_ENVIRONMENT		(1<<17)
-#define SCE_PASS_INDEXMA			(1<<18)
-#define SCE_PASS_DIFFUSE_DIRECT		(1<<19)
-#define SCE_PASS_DIFFUSE_INDIRECT	(1<<20)
-#define SCE_PASS_DIFFUSE_COLOR		(1<<21)
-#define SCE_PASS_GLOSSY_DIRECT		(1<<22)
-#define SCE_PASS_GLOSSY_INDIRECT	(1<<23)
-#define SCE_PASS_GLOSSY_COLOR		(1<<24)
-#define SCE_PASS_TRANSM_DIRECT		(1<<25)
-#define SCE_PASS_TRANSM_INDIRECT	(1<<26)
-#define SCE_PASS_TRANSM_COLOR		(1<<27)
+#define SCE_PASS_COMBINED				(1<<0)
+#define SCE_PASS_Z						(1<<1)
+#define SCE_PASS_RGBA					(1<<2)
+#define SCE_PASS_DIFFUSE				(1<<3)
+#define SCE_PASS_SPEC					(1<<4)
+#define SCE_PASS_SHADOW					(1<<5)
+#define SCE_PASS_AO						(1<<6)
+#define SCE_PASS_REFLECT				(1<<7)
+#define SCE_PASS_NORMAL					(1<<8)
+#define SCE_PASS_VECTOR					(1<<9)
+#define SCE_PASS_REFRACT				(1<<10)
+#define SCE_PASS_INDEXOB				(1<<11)
+#define SCE_PASS_UV						(1<<12)
+#define SCE_PASS_INDIRECT				(1<<13)
+#define SCE_PASS_MIST					(1<<14)
+#define SCE_PASS_RAYHITS				(1<<15)
+#define SCE_PASS_EMIT					(1<<16)
+#define SCE_PASS_ENVIRONMENT			(1<<17)
+#define SCE_PASS_INDEXMA				(1<<18)
+#define SCE_PASS_DIFFUSE_DIRECT			(1<<19)
+#define SCE_PASS_DIFFUSE_INDIRECT		(1<<20)
+#define SCE_PASS_DIFFUSE_COLOR			(1<<21)
+#define SCE_PASS_GLOSSY_DIRECT			(1<<22)
+#define SCE_PASS_GLOSSY_INDIRECT		(1<<23)
+#define SCE_PASS_GLOSSY_COLOR			(1<<24)
+#define SCE_PASS_TRANSM_DIRECT			(1<<25)
+#define SCE_PASS_TRANSM_INDIRECT		(1<<26)
+#define SCE_PASS_TRANSM_COLOR			(1<<27)
+#define SCE_PASS_SUBSURFACE_DIRECT		(1<<28)
+#define SCE_PASS_SUBSURFACE_INDIRECT	(1<<29)
+#define SCE_PASS_SUBSURFACE_COLOR		(1<<30)
 
 /* note, srl->passflag is treestore element 'nr' in outliner, short still... */
 
@@ -652,7 +655,8 @@ typedef struct GameData {
 	short mode, matmode;
 	short occlusionRes;		/* resolution of occlusion Z buffer in pixel */
 	short physicsEngine;
-	short exitkey, pad;
+	short exitkey;
+	short vsync; /* Controls vsync: off, on, or adaptive (if supported) */
 	short ticrate, maxlogicstep, physubstep, maxphystep;
 	short obstacleSimulation;
 	short raster_storage;
@@ -687,6 +691,11 @@ typedef struct GameData {
 #define RAS_STORE_IMMEDIATE	1
 #define RAS_STORE_VA		2
 #define RAS_STORE_VBO		3
+
+/* vsync */
+#define VSYNC_OFF	0
+#define VSYNC_ON	1
+#define VSYNC_ADAPTIVE	2
 
 /* GameData.flag */
 #define GAME_RESTRICT_ANIM_UPDATES			(1 << 0)
@@ -914,6 +923,10 @@ typedef struct UnifiedPaintSettings {
 
 	/* position of mouse, used to sample the texture */
 	float tex_mouse[2];
+
+	/* position of mouse, used to sample the mask texture */
+	float mask_tex_mouse[2];
+
 	/* radius of brush, premultiplied with pressure.
 	 * In case of anchored brushes contains that radius */
 	float pixel_radius;
@@ -933,6 +946,27 @@ typedef enum {
 	 * BRUSH_ALPHA_PRESSURE */
 	UNIFIED_PAINT_BRUSH_ALPHA_PRESSURE  = (1 << 4)
 } UnifiedPaintSettingsFlags;
+
+typedef struct MeshStatVis {
+	char type;
+	char _pad1[2];
+
+	/* overhang */
+	char  overhang_axis;
+	float overhang_min, overhang_max;
+
+	/* thickness */
+	float thickness_min, thickness_max;
+	char thickness_samples;
+	char _pad2[3];
+
+	/* distort */
+	float distort_min, distort_max;
+
+	/* sharp */
+	float sharp_min, sharp_max;
+} MeshStatVis;
+
 
 /* *************************************************************** */
 /* Tool Settings */
@@ -1051,11 +1085,11 @@ typedef struct ToolSettings {
 	short proportional, prop_mode;
 	char proportional_objects; /* proportional edit, object mode */
 	char proportional_mask; /* proportional edit, object mode */
-	char pad4[1];
 
 	char auto_normalize; /*auto normalizing mode in wpaint*/
 	char multipaint; /* paint multiple bones in wpaint */
 	char weightuser;
+	char vgroupsubset; /* subset selection filter in wpaint */
 
 	/* UV painting */
 	int use_uv_sculpt;
@@ -1071,6 +1105,8 @@ typedef struct ToolSettings {
 
 	/* Unified Paint Settings */
 	struct UnifiedPaintSettings unified_paint_settings;
+
+	struct MeshStatVis statvis;
 } ToolSettings;
 
 /* *************************************************************** */
@@ -1273,7 +1309,7 @@ typedef struct Scene {
 #define R_BG_RENDER			0x0002
 		/* passepartout is camera option now, keep this for backward compatibility */
 #define R_PASSEPARTOUT		0x0004
-#define R_PREVIEWBUTS		0x0008
+#define R_BUTS_PREVIEW		0x0008
 #define R_EXTENSION			0x0010
 #define R_MATNODE_PREVIEW	0x0020
 #define R_DOCOMP			0x0040
@@ -1289,6 +1325,7 @@ typedef struct Scene {
 /* #define R_DEPRECATED		0x10000 */
 /* #define R_RECURS_PROTECTION	0x20000 */
 #define R_TEXNODE_PREVIEW	0x40000
+#define R_VIEWPORT_PREVIEW	0x80000
 
 /* r->stamp */
 #define R_STAMP_TIME 	0x0001
@@ -1445,6 +1482,13 @@ typedef struct Scene {
 #define SCE_SELECT_EDGE		2
 #define SCE_SELECT_FACE		4
 
+/* toolsettings->statvis->type */
+#define SCE_STATVIS_OVERHANG	0
+#define SCE_STATVIS_THICKNESS	1
+#define SCE_STATVIS_INTERSECT	2
+#define SCE_STATVIS_DISTORT		3
+#define SCE_STATVIS_SHARP		4
+
 /* toolsettings->particle.selectmode for particles */
 #define SCE_SELECT_PATH		1
 #define SCE_SELECT_POINT	2
@@ -1466,7 +1510,8 @@ typedef struct Scene {
 /* toolsettings->proportional */
 #define PROP_EDIT_OFF			0
 #define PROP_EDIT_ON			1
-#define PROP_EDIT_CONNECTED	2
+#define PROP_EDIT_CONNECTED		2
+#define PROP_EDIT_PROJECTED		3
 
 /* toolsettings->weightuser */
 enum {
@@ -1474,6 +1519,24 @@ enum {
 	OB_DRAW_GROUPUSER_ACTIVE    = 1,
 	OB_DRAW_GROUPUSER_ALL       = 2
 };
+
+/* toolsettings->vgroupsubset */
+/* object_vgroup.c */
+typedef enum eVGroupSelect {
+	WT_VGROUP_ALL = 0,
+	WT_VGROUP_ACTIVE = 1,
+	WT_VGROUP_BONE_SELECT = 2,
+	WT_VGROUP_BONE_DEFORM = 3,
+	WT_VGROUP_BONE_DEFORM_OFF = 4
+} eVGroupSelect;
+
+#define WT_VGROUP_MASK_ALL \
+	((1 << WT_VGROUP_ACTIVE) | \
+	 (1 << WT_VGROUP_BONE_SELECT) | \
+	 (1 << WT_VGROUP_BONE_DEFORM) | \
+	 (1 << WT_VGROUP_BONE_DEFORM_OFF) | \
+	 (1 << WT_VGROUP_ALL))
+
 
 /* sce->flag */
 #define SCE_DS_SELECTED			(1<<0)

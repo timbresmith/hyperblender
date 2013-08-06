@@ -271,6 +271,17 @@ MaskSpline *BKE_mask_spline_add(MaskLayer *masklay)
 	return spline;
 }
 
+bool BKE_mask_spline_remove(MaskLayer *mask_layer, MaskSpline *spline)
+{
+	if (BLI_remlink_safe(&mask_layer->splines, spline) == FALSE) {
+		return false;
+	}
+
+	BKE_mask_spline_free(spline);
+
+	return true;
+}
+
 void BKE_mask_point_direction_switch(MaskSplinePoint *point)
 {
 	const int tot_uw = point->tot_uw;
@@ -928,8 +939,6 @@ void BKE_mask_free(Main *bmain, Mask *mask)
 	SpaceLink *sl;
 	Scene *scene;
 
-	BKE_sequencer_clear_mask_in_clipboard(mask);
-
 	for (scr = bmain->screen.first; scr; scr = scr->id.next) {
 		for (area = scr->areabase.first; area; area = area->next) {
 			for (sl = area->spacedata.first; sl; sl = sl->next) {
@@ -1514,13 +1523,14 @@ void BKE_mask_evaluate_all_masks(Main *bmain, float ctime, const int do_newframe
 	}
 }
 
-void BKE_mask_update_scene(Main *bmain, Scene *scene, const int do_newframe)
+void BKE_mask_update_scene(Main *bmain, Scene *scene)
 {
 	Mask *mask;
 
 	for (mask = bmain->mask.first; mask; mask = mask->id.next) {
-		if (mask->id.flag & LIB_ID_RECALC) {
-			BKE_mask_evaluate_all_masks(bmain, CFRA, do_newframe);
+		if (mask->id.flag & (LIB_ID_RECALC | LIB_ID_RECALC_DATA)) {
+			bool do_new_frame = (mask->id.flag & LIB_ID_RECALC_DATA) != 0;
+			BKE_mask_evaluate_all_masks(bmain, CFRA, do_new_frame);
 		}
 	}
 }
@@ -1828,7 +1838,7 @@ static void interp_weights_uv_v2_apply(const float uv[2], float r_pt[2], const f
 	r_pt[1] +=  dvec[0] * uv[1];
 }
 
-/* when a now points added - resize all shapekey array  */
+/* when a new points added - resize all shapekey array  */
 void BKE_mask_layer_shape_changed_add(MaskLayer *masklay, int index,
                                       int do_init, int do_init_interpolate)
 {

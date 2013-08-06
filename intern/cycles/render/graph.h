@@ -75,7 +75,8 @@ enum ShaderBump {
 enum ShaderNodeSpecialType {
 	SHADER_SPECIAL_TYPE_NONE,
 	SHADER_SPECIAL_TYPE_PROXY,
-	SHADER_SPECIAL_TYPE_MIX_CLOSURE
+	SHADER_SPECIAL_TYPE_MIX_CLOSURE,
+	SHADER_SPECIAL_TYPE_AUTOCONVERT
 };
 
 /* Enum
@@ -188,6 +189,7 @@ public:
 	virtual bool has_surface_emission() { return false; }
 	virtual bool has_surface_transparent() { return false; }
 	virtual bool has_surface_bssrdf() { return false; }
+	virtual bool has_converter_blackbody() { return false; }
 
 	vector<ShaderInput*> inputs;
 	vector<ShaderOutput*> outputs;
@@ -226,6 +228,7 @@ public:
 class ShaderGraph {
 public:
 	list<ShaderNode*> nodes;
+	size_t num_node_ids;
 	bool finalized;
 
 	ShaderGraph();
@@ -239,6 +242,7 @@ public:
 	void connect(ShaderOutput *from, ShaderInput *to);
 	void disconnect(ShaderInput *to);
 
+	void remove_unneeded_nodes();
 	void finalize(bool do_bump = false, bool do_osl = false, bool do_multi_closure = false);
 
 protected:
@@ -247,7 +251,6 @@ protected:
 	void find_dependencies(set<ShaderNode*>& dependencies, ShaderInput *input);
 	void copy_nodes(set<ShaderNode*>& nodes, map<ShaderNode*, ShaderNode*>& nnodemap);
 
-	void remove_proxy_nodes(vector<bool>& removed);
 	void break_cycles(ShaderNode *node, vector<bool>& visited, vector<bool>& on_stack);
 	void clean();
 	void bump_from_displacement();

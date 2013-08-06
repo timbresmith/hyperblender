@@ -80,6 +80,7 @@ static void bm_vert_boundary_tangent(BMVert *v, float r_no[3], float r_no_face[3
 	}
 
 	if (e_a && e_b) {
+		/* note, with an incorrectly flushed selection this can crash */
 		l_a = bm_edge_tag_faceloop(e_a);
 		l_b = bm_edge_tag_faceloop(e_b);
 
@@ -176,7 +177,7 @@ void bmo_wireframe_exec(BMesh *bm, BMOperator *op)
 
 	/* will over-alloc, but makes for easy lookups by index to keep aligned  */
 	BMVert **verts_boundary = use_boundary ?
-	                          MEM_mallocN(sizeof(BMVert **) * totvert_orig, __func__) : NULL;
+	                          MEM_mallocN(sizeof(BMVert *) * totvert_orig, __func__) : NULL;
 
 	float  *verts_relfac    = use_relative_offset ?
 	                          MEM_mallocN(sizeof(float) * totvert_orig, __func__) : NULL;
@@ -217,7 +218,8 @@ void bmo_wireframe_exec(BMesh *bm, BMOperator *op)
 	}
 
 	/* duplicate tagged verts */
-	for (i = 0, v_src = verts_src[i]; i < totvert_orig; i++, v_src = verts_src[i]) {
+	for (i = 0; i < totvert_orig; i++) {
+		v_src = verts_src[i];
 		if (BM_elem_flag_test(v_src, BM_ELEM_TAG)) {
 			fac = depth;
 
@@ -248,7 +250,7 @@ void bmo_wireframe_exec(BMesh *bm, BMOperator *op)
 		BM_mesh_elem_hflag_disable_all(bm, BM_VERT, BM_ELEM_TAG, false);
 	}
 
-	verts_loop = MEM_mallocN(sizeof(BMVert **) * verts_loop_tot, __func__);
+	verts_loop = MEM_mallocN(sizeof(BMVert *) * verts_loop_tot, __func__);
 	verts_loop_tot = 0; /* count up again */
 
 	BMO_ITER (f_src, &oiter, op->slots_in, "faces", BM_FACE) {

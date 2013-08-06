@@ -38,6 +38,10 @@
 
 #include "../system/FreestyleConfig.h"
 
+#ifdef WITH_CXX_GUARDEDALLOC
+#include "MEM_guardedalloc.h"
+#endif
+
 namespace Freestyle {
 
 /**********************************/
@@ -107,6 +111,10 @@ protected:
 	static string _patterns_path;
 	static string _brushes_path;
 	unsigned int _defaultTextureId;
+	
+#ifdef WITH_CXX_GUARDEDALLOC
+	MEM_CXX_CLASS_ALLOC_FUNCS("Freestyle:TextureManager")
+#endif
 };
 
 
@@ -135,6 +143,10 @@ public:
 
 	//static unsigned int getTextureIndex(unsigned int index);
 	static TextureManager *_textureManager;
+
+#ifdef WITH_CXX_GUARDEDALLOC
+	MEM_CXX_CLASS_ALLOC_FUNCS("Freestyle:StrokeRenderer")
+#endif
 };
 
 } /* namespace Freestyle */

@@ -35,11 +35,12 @@
 #include "DNA_meshdata_types.h"
 #include "DNA_object_types.h"
 
-#include "BLO_sys_types.h"
+#include "BLI_sys_types.h"
 
+#include "BLI_utildefines.h"
 #include "BLI_edgehash.h"
 #include "BLI_math_base.h"
-#include "BLI_utildefines.h"
+#include "BLI_math_vector.h"
 
 #include "BKE_deform.h"
 #include "BKE_depsgraph.h"
@@ -293,7 +294,7 @@ int BKE_mesh_validate_arrays(Mesh *mesh,
 #		define CHECK_FACE_EDGE(a, b) \
 					if (!BLI_edgehash_haskey(edge_hash, mf->a, mf->b)) { \
 						PRINT("    face %u: edge " STRINGIFY(a) "/" STRINGIFY(b) \
-						      " (%u,%u) is missing egde data\n", i, mf->a, mf->b); \
+						      " (%u,%u) is missing edge data\n", i, mf->a, mf->b); \
 						do_edge_recalc = TRUE; \
 					} (void)0
 

@@ -51,9 +51,9 @@ __device_noinline float4 voronoi_Fn(float3 p, float e, int n1, int n2)
 	/* returns distances in da and point coords in pa */
 	int xx, yy, zz, xi, yi, zi;
 
-	xi = (int)floorf(p.x);
-	yi = (int)floorf(p.y);
-	zi = (int)floorf(p.z);
+	xi = floor_to_int(p.x);
+	yi = floor_to_int(p.y);
+	zi = floor_to_int(p.z);
 
 	da[0] = 1e10f;
 	da[1] = 1e10f;
@@ -185,15 +185,15 @@ __device float noise_wave(NodeWaveBasis wave, float a)
 		return 0.5f + 0.5f * sinf(a);
 	}
 	else if(wave == NODE_WAVE_SAW) {
-		float b = 2.0f*M_PI_F;
-		int n = (int)(a / b);
+		float b = M_2PI_F;
+		int n = float_to_int(a / b);
 		a -= n*b;
 		if(a < 0.0f) a += b;
 
 		return a / b;
 	}
 	else if(wave == NODE_WAVE_TRI) {
-		float b = 2.0f*M_PI_F;
+		float b = M_2PI_F;
 		float rmax = 1.0f;
 
 		return rmax - 2.0f*fabsf(floorf((a*(1.0f/b))+0.5f) - (a*(1.0f/b)));
@@ -212,7 +212,7 @@ __device_noinline float noise_turbulence(float3 p, NodeNoiseBasis basis, float o
 	int i, n;
 
 	octaves = clamp(octaves, 0.0f, 16.0f);
-	n = (int)octaves;
+	n = float_to_int(octaves);
 
 	for(i = 0; i <= n; i++) {
 		float t = noise_basis(fscale*p, basis);

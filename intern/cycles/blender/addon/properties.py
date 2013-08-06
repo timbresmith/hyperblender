@@ -71,6 +71,7 @@ enum_curve_presets = (
     ('TRUE_NORMAL', "True Normal", "Use true normals with line segments(good for thin strands)"),
     ('ACCURATE_PRESET', "Accurate", "Use best line segment settings (suitable for glass materials)"),
     ('SMOOTH_CURVES', "Smooth Curves", "Use smooth cardinal curves (slowest)"),
+    ('SMOOTH_RIBBONS', "Ribbons", "Use smooth cardinal curves without thickness"),
     )
 
 enum_curve_primitives = (
@@ -107,6 +108,17 @@ enum_tile_order = (
     ('BOTTOM_TO_TOP', "Bottom to Top", "Render from bottom to top"),
     )
 
+enum_use_layer_samples = (
+    ('USE', "Use", "Per render layer number of samples override scene samples"),
+    ('BOUNDED', "Bounded", "Bound per render layer number of samples by global samples"),
+    ('IGNORE', "Ignore", "Ignore per render layer number of samples"),
+    )
+
+enum_sampling_pattern = (
+    ('SOBOL', "Sobol", "Use Sobol random sampling pattern"),
+    ('CORRELATED_MUTI_JITTER', "Correlated Multi-Jitter", "Use Correlated Multi-Jitter random sampling pattern"),
+    )
+
 
 class CyclesRenderSettings(bpy.types.PropertyGroup):
     @classmethod
@@ -137,6 +149,11 @@ class CyclesRenderSettings(bpy.types.PropertyGroup):
                 name="Progressive",
                 description="Use progressive sampling of lighting",
                 default=True,
+                )
+        cls.squared_samples = BoolProperty(
+                name="Squared Samples",
+                description="Square sampling values for easier artist control",
+                default=False,
                 )
 
         cls.samples = IntProperty(
@@ -210,6 +227,20 @@ class CyclesRenderSettings(bpy.types.PropertyGroup):
                 description="Number of subsurface scattering samples to render for each AA sample",
                 min=1, max=10000,
                 default=1,
+                )
+
+        cls.sampling_pattern = EnumProperty(
+                name="Sampling Pattern",
+                description="Random sampling pattern used by the integrator",
+                items=enum_sampling_pattern,
+                default='SOBOL',
+                )
+
+        cls.use_layer_samples = EnumProperty(
+                name="Layer Samples",
+                description="How to use per render layer sample settings",
+                items=enum_use_layer_samples,
+                default='USE',
                 )
 
         cls.no_caustics = BoolProperty(
@@ -447,7 +478,7 @@ class CyclesCameraSettings(bpy.types.PropertyGroup):
         cls.fisheye_fov = FloatProperty(
                 name="Field of View",
                 description="Field of view for the fisheye lens",
-                min=0.1745, soft_max=2 * math.pi, max=10.0 * math.pi,
+                min=0.1745, soft_max=2.0 * math.pi, max=10.0 * math.pi,
                 subtype='ANGLE',
                 default=math.pi,
                 )
@@ -476,6 +507,12 @@ class CyclesMaterialSettings(bpy.types.PropertyGroup):
                 description="Use multiple importance sampling for this material, "
                             "disabling may reduce overall noise for large "
                             "objects that emit little light compared to other light sources",
+                default=True,
+                )
+        cls.use_transparent_shadow = BoolProperty(
+                name="Transparent Shadows",
+                description="Use transparent shadows for this material if it contains a Transparent BSDF, "
+                            "disabling will render faster but not give accurate shadows",
                 default=True,
                 )
         cls.homogeneous_volume = BoolProperty(
@@ -558,6 +595,12 @@ class CyclesVisibilitySettings(bpy.types.PropertyGroup):
     @classmethod
     def register(cls):
         bpy.types.Object.cycles_visibility = PointerProperty(
+                name="Cycles Visibility Settings",
+                description="Cycles visibility settings",
+                type=cls,
+                )
+
+        bpy.types.World.cycles_visibility = PointerProperty(
                 name="Cycles Visibility Settings",
                 description="Cycles visibility settings",
                 type=cls,
@@ -742,14 +785,26 @@ class CyclesCurveRenderSettings(bpy.types.PropertyGroup):
         cls.encasing_ratio = FloatProperty(
                 name="Encasing ratio",
                 description="Scale factor for encasing strand width",
-                min=0, max=100.0,
+                min=0.0, max=100.0,
                 default=1.01,
+                )
+        cls.minimum_width = FloatProperty(
+                name="Minimal width",
+                description="Minimal pixel width for strands (0 - deactivated)",
+                min=0.0, max=100.0,
+                default=0.0,
+                )
+        cls.maximum_width = FloatProperty(
+                name="Maximal width",
+                description="Maximum extension that strand radius can be increased by",
+                min=0.0, max=100.0,
+                default=0.1,
                 )
         cls.subdivisions = IntProperty(
                 name="Subdivisions",
                 description="Number of subdivisions used in Cardinal curve intersection (power of 2)",
                 min=0, max=24,
-                default=3,
+                default=4,
                 )
 
     @classmethod
@@ -765,15 +820,21 @@ class CyclesCurveSettings(bpy.types.PropertyGroup):
                 description="Cycles hair settings",
                 type=cls,
                 )
+        cls.radius_scale = FloatProperty(
+                name="Radius Scaling",
+                description="Multiplier of width properties",
+                min=0.0, max=1000.0,
+                default=0.01,
+                )
         cls.root_width = FloatProperty(
-                name="Root Size Multiplier",
-                description="Multiplier of particle size for the strand's width at root",
+                name="Root Size",
+                description="Strand's width at root",
                 min=0.0, max=1000.0,
                 default=1.0,
                 )
         cls.tip_width = FloatProperty(
-                name="Tip Size Multiplier",
-                description="Multiplier of particle size for the strand's width at tip",
+                name="Tip Multiplier",
+                description="Strand's width at tip",
                 min=0.0, max=1000.0,
                 default=0.0,
                 )

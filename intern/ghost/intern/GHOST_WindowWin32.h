@@ -38,7 +38,6 @@
 #endif // WIN32
 
 #include "GHOST_Window.h"
-#include "GHOST_SizerWin32.h"
 #include "GHOST_TaskbarWin32.h"
 
 #define _WIN32_WINNT 0x501 // require Windows XP or newer
@@ -213,6 +212,19 @@ public:
 	virtual GHOST_TSuccess swapBuffers();
 
 	/**
+	 * Sets the swap interval for swapBuffers.
+	 * \param interval The swap interval to use.
+	 * \return A boolean success indicator.
+	 */
+	virtual GHOST_TSuccess setSwapInterval(int interval);
+
+	/**
+	 * Gets the current swap interval for swapBuffers.
+	 * \return An integer.
+	 */
+	virtual int getSwapInterval();
+
+	/**
 	 * Activates the drawing context of this window.
 	 * \return Indication of success.
 	 */
@@ -281,7 +293,8 @@ public:
 
 	GHOST_TSuccess endFullScreen() const {return GHOST_kFailure;}
 
-	GHOST_SizerWin32 m_wsh;
+	/** if the window currently resizing */
+	bool m_inLiveResize;
 
 protected:
 	GHOST_TSuccess initMultisample(PIXELFORMATDESCRIPTOR pfd);

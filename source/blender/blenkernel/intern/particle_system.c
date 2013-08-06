@@ -62,6 +62,7 @@
 #include "DNA_ipo_types.h" // XXX old animation system stuff... to be removed!
 #include "DNA_listBase.h"
 
+#include "BLI_utildefines.h"
 #include "BLI_edgehash.h"
 #include "BLI_rand.h"
 #include "BLI_jitter.h"
@@ -70,7 +71,6 @@
 #include "BLI_kdtree.h"
 #include "BLI_kdopbvh.h"
 #include "BLI_threads.h"
-#include "BLI_utildefines.h"
 #include "BLI_linklist.h"
 
 #include "BKE_main.h"
@@ -123,7 +123,7 @@ static int particles_are_dynamic(ParticleSystem *psys)
 		return ELEM3(psys->part->phystype, PART_PHYS_NEWTON, PART_PHYS_BOIDS, PART_PHYS_FLUID);
 }
 
-static int psys_get_current_display_percentage(ParticleSystem *psys)
+float psys_get_current_display_percentage(ParticleSystem *psys)
 {
 	ParticleSettings *part=psys->part;
 
@@ -131,10 +131,10 @@ static int psys_get_current_display_percentage(ParticleSystem *psys)
 	    (part->child_nbr && part->childtype)  ||    /* display percentage applies to children */
 	    (psys->pointcache->flag & PTCACHE_BAKING))  /* baking is always done with full amount */
 	{
-		return 100;
+		return 1.0f;
 	}
 
-	return psys->part->disp;
+	return psys->part->disp/100.0f;
 }
 
 static int tot_particles(ParticleSystem *psys, PTCacheID *pid)
@@ -341,6 +341,7 @@ void psys_calc_dmcache(Object *ob, DerivedMesh *dm, ParticleSystem *psys)
 	 *            each original elements can reference its derived elements
 	 */
 	Mesh *me= (Mesh*)ob->data;
+	bool use_modifier_stack= psys->part->use_modifier_stack;
 	PARTICLE_P;
 	
 	/* CACHE LOCATIONS */
@@ -351,17 +352,33 @@ void psys_calc_dmcache(Object *ob, DerivedMesh *dm, ParticleSystem *psys)
 
 		if (psys->part->from == PART_FROM_VERT) {
 			totdmelem= dm->getNumVerts(dm);
-			totelem= me->totvert;
-			origindex= dm->getVertDataArray(dm, CD_ORIGINDEX);
+
+			if (use_modifier_stack) {
+				totelem= totdmelem;
+				origindex= NULL;
+			}
+			else {
+				totelem= me->totvert;
+				origindex= dm->getVertDataArray(dm, CD_ORIGINDEX);
+			}
 		}
 		else { /* FROM_FACE/FROM_VOLUME */
 			totdmelem= dm->getNumTessFaces(dm);
-			totelem= me->totpoly;
-			origindex = dm->getTessFaceDataArray(dm, CD_ORIGINDEX);
-			/* for face lookups we need the poly origindex too */
-			origindex_poly = dm->getPolyDataArray(dm, CD_ORIGINDEX);
-			if (origindex_poly == NULL) {
-				origindex = NULL;
+
+			if (use_modifier_stack) {
+				totelem= totdmelem;
+				origindex= NULL;
+				origindex_poly= NULL;
+			}
+			else {
+				totelem= me->totpoly;
+				origindex= dm->getTessFaceDataArray(dm, CD_ORIGINDEX);
+
+				/* for face lookups we need the poly origindex too */
+				origindex_poly= dm->getPolyDataArray(dm, CD_ORIGINDEX);
+				if (origindex_poly == NULL) {
+					origindex= NULL;
+				}
 			}
 		}
 	
@@ -373,11 +390,16 @@ void psys_calc_dmcache(Object *ob, DerivedMesh *dm, ParticleSystem *psys)
 			node->link = SET_INT_IN_POINTER(i);
 
 			/* may be vertex or face origindex */
-			origindex_final = origindex ? origindex[i] : ORIGINDEX_NONE;
+			if (use_modifier_stack) {
+				origindex_final = i;
+			}
+			else {
+				origindex_final = origindex ? origindex[i] : ORIGINDEX_NONE;
 
-			/* if we have a poly source, do an index lookup */
-			if (origindex_poly && origindex_final != ORIGINDEX_NONE) {
-				origindex_final = origindex_poly[origindex_final];
+				/* if we have a poly source, do an index lookup */
+				if (origindex_poly && origindex_final != ORIGINDEX_NONE) {
+					origindex_final = origindex_poly[origindex_final];
+				}
 			}
 
 			if (origindex_final != ORIGINDEX_NONE) {
@@ -395,18 +417,28 @@ void psys_calc_dmcache(Object *ob, DerivedMesh *dm, ParticleSystem *psys)
 		/* cache the verts/faces! */
 		LOOP_PARTICLES {
 			if (pa->num < 0) {
-				pa->num_dmcache = -1;
+				pa->num_dmcache = DMCACHE_NOTFOUND;
 				continue;
 			}
 
-			if (psys->part->from == PART_FROM_VERT) {
-				if (nodearray[pa->num])
-					pa->num_dmcache= GET_INT_FROM_POINTER(nodearray[pa->num]->link);
+			if (use_modifier_stack) {
+				if (pa->num < totelem)
+					pa->num_dmcache = DMCACHE_ISCHILD;
+				else
+					pa->num_dmcache = DMCACHE_NOTFOUND;
 			}
-			else { /* FROM_FACE/FROM_VOLUME */
-				/* Note that sometimes the pa->num is over the nodearray size, this is bad, maybe there is a better place to fix this,
-				 * but for now passing NULL is OK. every face will be searched for the particle so its slower - Campbell */
-				pa->num_dmcache= psys_particle_dm_face_lookup(ob, dm, pa->num, pa->fuv, pa->num < totelem ? nodearray[pa->num] : NULL);
+			else {
+				if (psys->part->from == PART_FROM_VERT) {
+					if (pa->num < totelem && nodearray[pa->num])
+						pa->num_dmcache= GET_INT_FROM_POINTER(nodearray[pa->num]->link);
+					else
+						pa->num_dmcache = DMCACHE_NOTFOUND;
+				}
+				else { /* FROM_FACE/FROM_VOLUME */
+					/* Note that sometimes the pa->num is over the nodearray size, this is bad, maybe there is a better place to fix this,
+					 * but for now passing NULL is OK. every face will be searched for the particle so its slower - Campbell */
+					pa->num_dmcache= psys_particle_dm_face_lookup(ob, dm, pa->num, pa->fuv, pa->num < totelem ? nodearray[pa->num] : NULL);
+				}
 			}
 		}
 
@@ -419,7 +451,7 @@ void psys_calc_dmcache(Object *ob, DerivedMesh *dm, ParticleSystem *psys)
 		 * an invalid value, just in case */
 		
 		LOOP_PARTICLES
-			pa->num_dmcache = -1;
+			pa->num_dmcache = DMCACHE_NOTFOUND;
 	}
 }
 
@@ -1110,7 +1142,10 @@ static int distribute_threads_init_data(ParticleThread *threads, Scene *scene, D
 		distr = part->distr;
 		BLI_srandom(31415926 + psys->seed);
 		
-		dm= CDDM_from_mesh((Mesh*)ob->data, ob);
+		if (psys->part->use_modifier_stack)
+			dm = finaldm;
+		else
+			dm= CDDM_from_mesh((Mesh*)ob->data, ob);
 
 		/* BMESH ONLY, for verts we don't care about tessfaces */
 		if (from != PART_FROM_VERT) {
@@ -1118,7 +1153,8 @@ static int distribute_threads_init_data(ParticleThread *threads, Scene *scene, D
 		}
 
 		/* we need orco for consistent distributions */
-		DM_add_vert_layer(dm, CD_ORCO, CD_ASSIGN, BKE_mesh_orco_verts_get(ob));
+		if (!CustomData_has_layer(&dm->vertData, CD_ORCO))
+			DM_add_vert_layer(dm, CD_ORCO, CD_ASSIGN, BKE_mesh_orco_verts_get(ob));
 
 		if (from == PART_FROM_VERT) {
 			MVert *mv= dm->getVertDataArray(dm, CD_MVERT);
@@ -1439,12 +1475,7 @@ ParticleThread *psys_threads_create(ParticleSimulationData *sim)
 {
 	ParticleThread *threads;
 	ParticleThreadContext *ctx;
-	int i, totthread;
-
-	if (sim->scene->r.mode & R_FIXED_THREADS)
-		totthread= sim->scene->r.threads;
-	else
-		totthread= BLI_system_thread_count();
+	int i, totthread = BKE_scene_num_threads(sim->scene);
 	
 	threads= MEM_callocN(sizeof(ParticleThread)*totthread, "ParticleThread");
 	ctx= MEM_callocN(sizeof(ParticleThreadContext), "ParticleThreadContext");
@@ -1629,17 +1660,22 @@ void psys_get_birth_coordinates(ParticleSimulationData *sim, ParticleData *pa, P
 {
 	Object *ob = sim->ob;
 	ParticleSystem *psys = sim->psys;
-	ParticleSettings *part;
+	ParticleSettings *part = psys->part;
 	ParticleTexture ptex;
 	float fac, phasefac, nor[3] = {0,0,0},loc[3],vel[3] = {0.0,0.0,0.0},rot[4],q2[4];
 	float r_vel[3],r_ave[3],r_rot[4],vec[3],p_vel[3] = {0.0,0.0,0.0};
 	float x_vec[3] = {1.0,0.0,0.0}, utan[3] = {0.0,1.0,0.0}, vtan[3] = {0.0,0.0,1.0}, rot_vec[3] = {0.0,0.0,0.0};
 	float q_phase[4];
+
+	const bool use_boids = ((part->phystype == PART_PHYS_BOIDS) &&
+	                        (pa->boid != NULL));
+	const bool use_tangents = ((use_boids == false) &&
+	                           ((part->tanfac != 0.0f) || (part->rotmode == PART_ROT_NOR_TAN)));
+
 	int p = pa - psys->particles;
-	part=psys->part;
 
 	/* get birth location from object		*/
-	if (part->tanfac != 0.f)
+	if (use_tangents)
 		psys_particle_on_emitter(sim->psmd, part->from,pa->num, pa->num_dmcache, pa->fuv,pa->foffset,loc,nor,utan,vtan,0,0);
 	else
 		psys_particle_on_emitter(sim->psmd, part->from,pa->num, pa->num_dmcache, pa->fuv,pa->foffset,loc,nor,0,0,0,0);
@@ -1657,7 +1693,7 @@ void psys_get_birth_coordinates(ParticleSimulationData *sim, ParticleData *pa, P
 	normalize_v3(nor);
 
 	/* -tangent								*/
-	if (part->tanfac!=0.0f) {
+	if (use_tangents) {
 		//float phase=vg_rot?2.0f*(psys_particle_value_from_verts(sim->psmd->dm,part->from,pa,vg_rot)-0.5f):0.0f;
 		float phase=0.0f;
 		mul_v3_fl(vtan,-cosf((float)M_PI*(part->tanphase+phase)));
@@ -1706,7 +1742,7 @@ void psys_get_birth_coordinates(ParticleSimulationData *sim, ParticleData *pa, P
 		mul_qt_qtqt(r_rot,r_rot,rot);
 	}
 
-	if (part->phystype==PART_PHYS_BOIDS && pa->boid) {
+	if (use_boids) {
 		float dvec[3], q[4], mat[3][3];
 
 		copy_v3_v3(state->co,loc);
@@ -1792,35 +1828,112 @@ void psys_get_birth_coordinates(ParticleSimulationData *sim, ParticleData *pa, P
 		unit_qt(state->rot);
 
 		if (part->rotmode) {
+			bool use_global_space;
+
 			/* create vector into which rotation is aligned */
 			switch (part->rotmode) {
 				case PART_ROT_NOR:
+				case PART_ROT_NOR_TAN:
 					copy_v3_v3(rot_vec, nor);
+					use_global_space = false;
 					break;
 				case PART_ROT_VEL:
 					copy_v3_v3(rot_vec, vel);
+					use_global_space = true;
 					break;
 				case PART_ROT_GLOB_X:
 				case PART_ROT_GLOB_Y:
 				case PART_ROT_GLOB_Z:
 					rot_vec[part->rotmode - PART_ROT_GLOB_X] = 1.0f;
+					use_global_space = true;
 					break;
 				case PART_ROT_OB_X:
 				case PART_ROT_OB_Y:
 				case PART_ROT_OB_Z:
 					copy_v3_v3(rot_vec, ob->obmat[part->rotmode - PART_ROT_OB_X]);
+					use_global_space = false;
+					break;
+				default:
+					use_global_space = true;
 					break;
 			}
 			
 			/* create rotation quat */
-			negate_v3(rot_vec);
-			vec_to_quat( q2,rot_vec, OB_POSX, OB_POSZ);
 
-			/* randomize rotation quat */
-			if (part->randrotfac!=0.0f)
-				interp_qt_qtqt(rot, q2, r_rot, part->randrotfac);
-			else
-				copy_qt_qt(rot,q2);
+
+			if (use_global_space) {
+				negate_v3(rot_vec);
+				vec_to_quat(q2, rot_vec, OB_POSX, OB_POSZ);
+
+				/* randomize rotation quat */
+				if (part->randrotfac != 0.0f) {
+					interp_qt_qtqt(rot, q2, r_rot, part->randrotfac);
+				}
+				else {
+					copy_qt_qt(rot, q2);
+				}
+			}
+			else {
+				/* calculate rotation in local-space */
+				float q_obmat[4];
+				float q_imat[4];
+
+				mat4_to_quat(q_obmat, ob->obmat);
+				invert_qt_qt(q_imat, q_obmat);
+
+
+				if (part->rotmode != PART_ROT_NOR_TAN) {
+					float rot_vec_local[3];
+
+					/* rot_vec */
+					negate_v3(rot_vec);
+					copy_v3_v3(rot_vec_local, rot_vec);
+					mul_qt_v3(q_imat, rot_vec_local);
+					normalize_v3(rot_vec_local);
+
+					vec_to_quat(q2, rot_vec_local, OB_POSX, OB_POSZ);
+				}
+				else {
+					/* (part->rotmode == PART_ROT_NOR_TAN) */
+					float tmat[3][3];
+
+					/* note: utan_local is not taken from 'utan', we calculate from rot_vec/vtan */
+					/* note: it looks like rotation phase may be applied twice (once with vtan, again below)
+					 * however this isn't the case - campbell */
+					float *rot_vec_local = tmat[0];
+					float *vtan_local    = tmat[1];
+					float *utan_local    = tmat[2];
+
+					/* use tangents */
+					BLI_assert(use_tangents == true);
+
+					/* rot_vec */
+					copy_v3_v3(rot_vec_local, rot_vec);
+					mul_qt_v3(q_imat, rot_vec_local);
+
+					/* vtan_local */
+					copy_v3_v3(vtan_local, vtan);  /* flips, cant use */
+					mul_qt_v3(q_imat, vtan_local);
+
+					/* ensure orthogonal matrix (rot_vec aligned) */
+					cross_v3_v3v3(utan_local, vtan_local, rot_vec_local);
+					cross_v3_v3v3(vtan_local, utan_local, rot_vec_local);
+
+					/* note: no need to normalize */
+					mat3_to_quat(q2, tmat);
+				}
+
+				/* randomize rotation quat */
+				if (part->randrotfac != 0.0f) {
+					mul_qt_qtqt(r_rot, r_rot, q_imat);
+					interp_qt_qtqt(rot, q2, r_rot, part->randrotfac);
+				}
+				else {
+					copy_qt_qt(rot, q2);
+				}
+
+				mul_qt_qtqt(rot, q_obmat, rot);
+			}
 
 			/* rotation phase */
 			phasefac = part->phasefac;
@@ -3954,7 +4067,7 @@ static void hair_step(ParticleSimulationData *sim, float cfra)
 	ParticleSystem *psys = sim->psys;
 	ParticleSettings *part = psys->part;
 	PARTICLE_P;
-	float disp = (float)psys_get_current_display_percentage(psys)/100.0f;
+	float disp = psys_get_current_display_percentage(psys);
 
 	LOOP_PARTICLES {
 		pa->size = part->size;
@@ -4100,6 +4213,7 @@ static void dynamics_step(ParticleSimulationData *sim, float cfra)
 {
 	ParticleSystem *psys = sim->psys;
 	ParticleSettings *part=psys->part;
+	RNG *rng;
 	BoidBrainData bbd;
 	ParticleTexture ptex;
 	PARTICLE_P;
@@ -4127,6 +4241,8 @@ static void dynamics_step(ParticleSimulationData *sim, float cfra)
 	}
 
 	BLI_srandom(31415926 + (int)cfra + psys->seed);
+	/* for now do both, boids us 'rng' */
+	rng = BLI_rng_new_srandom(31415926 + (int)cfra + psys->seed);
 
 	psys_update_effectors(sim);
 
@@ -4143,6 +4259,7 @@ static void dynamics_step(ParticleSimulationData *sim, float cfra)
 			bbd.cfra = cfra;
 			bbd.dfra = dfra;
 			bbd.timestep = timestep;
+			bbd.rng = rng;
 
 			psys_update_particle_tree(psys, cfra);
 
@@ -4278,7 +4395,7 @@ static void dynamics_step(ParticleSimulationData *sim, float cfra)
 				/* SPH_SOLVER_CLASSICAL */
 				/* Apply SPH forces using classical algorithm (due to Gingold
 				 * and Monaghan). Note that, unlike double-density relaxation,
-				 * this algorthim is separated into distinct loops. */
+				 * this algorithm is separated into distinct loops. */
 
 				#pragma omp parallel for firstprivate (sphdata) private (pa) schedule(dynamic,5)
 				LOOP_DYNAMIC_PARTICLES {
@@ -4326,6 +4443,7 @@ static void dynamics_step(ParticleSimulationData *sim, float cfra)
 	}
 
 	free_collider_cache(&sim->colliders);
+	BLI_rng_free(rng);
 }
 static void update_children(ParticleSimulationData *sim)
 {
@@ -4353,7 +4471,7 @@ static void cached_step(ParticleSimulationData *sim, float cfra)
 
 	psys_update_effectors(sim);
 	
-	disp= (float)psys_get_current_display_percentage(psys)/100.0f;
+	disp= psys_get_current_display_percentage(psys);
 
 	LOOP_PARTICLES {
 		psys_get_texture(sim, pa, &ptex, PAMAP_SIZE, cfra);
@@ -4602,7 +4720,7 @@ static void system_step(ParticleSimulationData *sim, float cfra)
 
 /* 3. do dynamics */
 	/* set particles to be not calculated TODO: can't work with pointcache */
-	disp= (float)psys_get_current_display_percentage(psys)/100.0f;
+	disp= psys_get_current_display_percentage(psys);
 
 	LOOP_PARTICLES {
 		if (PSYS_FRAND(p) > disp)
@@ -4898,7 +5016,7 @@ void particle_system_update(Scene *scene, Object *ob, ParticleSystem *psys)
 				case PART_PHYS_KEYED:
 				{
 					PARTICLE_P;
-					float disp = (float)psys_get_current_display_percentage(psys)/100.0f;
+					float disp = psys_get_current_display_percentage(psys);
 
 					/* Particles without dynamics haven't been reset yet because they don't use pointcache */
 					if (psys->recalc & PSYS_RECALC_RESET)

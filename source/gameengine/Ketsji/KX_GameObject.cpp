@@ -38,6 +38,8 @@
 
 #if defined(_WIN64) && !defined(FREE_WINDOWS64)
 typedef unsigned __int64 uint_ptr;
+#elif defined(FREE_WINDOWS64)
+typedef unsigned long long uint_ptr;
 #else
 typedef unsigned long uint_ptr;
 #endif
@@ -165,7 +167,6 @@ KX_GameObject::~KX_GameObject()
 
 	if (m_actionManager)
 	{
-		KX_GetActiveScene()->RemoveAnimatedObject(this);
 		delete m_actionManager;
 	}
 
@@ -413,7 +414,7 @@ BL_ActionManager* KX_GameObject::GetActionManager()
 	// We only want to create an action manager if we need it
 	if (!m_actionManager)
 	{
-		KX_GetActiveScene()->AddAnimatedObject(this);
+		GetScene()->AddAnimatedObject(this);
 		m_actionManager = new BL_ActionManager(this);
 	}
 	return m_actionManager;
@@ -482,8 +483,7 @@ void KX_GameObject::ProcessReplica()
 	m_pSGNode = NULL;
 	m_pClient_info = new KX_ClientObjectInfo(*m_pClient_info);
 	m_pClient_info->m_gameobject = this;
-	if (m_actionManager)
-		m_actionManager = new BL_ActionManager(this);
+	m_actionManager = NULL;
 	m_state = 0;
 
 	KX_Scene* scene = KX_GetActiveScene();
@@ -1858,15 +1858,14 @@ static int Map_SetItem(PyObject *self_v, PyObject *key, PyObject *val)
 		}
 	}
 	else { /* ob["key"] = value */
-		int set= 0;
+		bool set = false;
 		
 		/* as CValue */
 		if (attr_str && PyObject_TypeCheck(val, &PyObjectPlus::Type)==0) /* don't allow GameObjects for eg to be assigned to CValue props */
 		{
-			CValue* vallie = self->ConvertPythonToValue(val, ""); /* error unused */
+			CValue *vallie = self->ConvertPythonToValue(val, false, "gameOb[key] = value: ");
 			
-			if (vallie)
-			{
+			if (vallie) {
 				CValue* oldprop = self->GetProperty(attr_str);
 				
 				if (oldprop)
@@ -1875,7 +1874,7 @@ static int Map_SetItem(PyObject *self_v, PyObject *key, PyObject *val)
 					self->SetProperty(attr_str, vallie);
 				
 				vallie->Release();
-				set= 1;
+				set = true;
 				
 				/* try remove dict value to avoid double ups */
 				if (self->m_attr_dict) {
@@ -1883,13 +1882,12 @@ static int Map_SetItem(PyObject *self_v, PyObject *key, PyObject *val)
 						PyErr_Clear();
 				}
 			}
-			else {
-				PyErr_Clear();
+			else if (PyErr_Occurred()) {
+				return -1;
 			}
 		}
 		
-		if (set==0)
-		{
+		if (set == false) {
 			if (self->m_attr_dict==NULL) /* lazy init */
 				self->m_attr_dict= PyDict_New();
 			
@@ -1898,7 +1896,7 @@ static int Map_SetItem(PyObject *self_v, PyObject *key, PyObject *val)
 			{
 				if (attr_str)
 					self->RemoveProperty(attr_str); /* overwrite the CValue if it exists */
-				set= 1;
+				set = true;
 			}
 			else {
 				if (attr_str)	PyErr_Format(PyExc_KeyError, "gameOb[key] = value: KX_GameObject, key \"%s\" not be added to internal dictionary", attr_str);
@@ -1906,8 +1904,9 @@ static int Map_SetItem(PyObject *self_v, PyObject *key, PyObject *val)
 			}
 		}
 		
-		if (set==0)
+		if (set == false) {
 			return -1; /* pythons error value */
+		}
 		
 	}
 	
@@ -2283,7 +2282,7 @@ PyObject *KX_GameObject::pyattr_get_localTransform(void *self_v, const KX_PYATTR
 {
 	KX_GameObject* self = static_cast<KX_GameObject*>(self_v);
 
-	double *mat = MT_CmMatrix4x4().getPointer();
+	double mat[16];
 
 	MT_Transform trans;
 	

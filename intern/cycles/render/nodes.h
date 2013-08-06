@@ -182,7 +182,7 @@ public:
 
 class ConvertNode : public ShaderNode {
 public:
-	ConvertNode(ShaderSocketType from, ShaderSocketType to);
+	ConvertNode(ShaderSocketType from, ShaderSocketType to, bool autoconvert = false);
 	SHADER_NODE_BASE_CLASS(ConvertNode)
 
 	ShaderSocketType from, to;
@@ -257,6 +257,14 @@ public:
 
 	ustring distribution;
 	static ShaderEnum distribution_enum;
+};
+
+class ToonBsdfNode : public BsdfNode {
+public:
+	SHADER_NODE_CLASS(ToonBsdfNode)
+
+	ustring component;
+	static ShaderEnum component_enum;
 };
 
 class SubsurfaceScatteringNode : public BsdfNode {
@@ -399,6 +407,11 @@ public:
 	SHADER_NODE_CLASS(CombineRGBNode)
 };
 
+class CombineHSVNode : public ShaderNode {
+public:
+	SHADER_NODE_CLASS(CombineHSVNode)
+};
+
 class GammaNode : public ShaderNode {
 public:
 	SHADER_NODE_CLASS(GammaNode)
@@ -412,6 +425,11 @@ public:
 class SeparateRGBNode : public ShaderNode {
 public:
 	SHADER_NODE_CLASS(SeparateRGBNode)
+};
+
+class SeparateHSVNode : public ShaderNode {
+public:
+	SHADER_NODE_CLASS(SeparateHSVNode)
 };
 
 class HSVNode : public ShaderNode {
@@ -442,6 +460,25 @@ public:
 	SHADER_NODE_CLASS(LayerWeightNode)
 };
 
+class WireframeNode : public ShaderNode {
+public:
+	SHADER_NODE_CLASS(WireframeNode)
+	
+	bool use_pixel_size;
+};
+
+class WavelengthNode : public ShaderNode {
+public:
+	SHADER_NODE_CLASS(WavelengthNode)
+};
+
+class BlackbodyNode : public ShaderNode {
+public:
+	SHADER_NODE_CLASS(BlackbodyNode)
+	
+	bool has_converter_blackbody() { return true; }
+};
+
 class MathNode : public ShaderNode {
 public:
 	SHADER_NODE_CLASS(MathNode)
@@ -467,9 +504,22 @@ public:
 	static ShaderEnum type_enum;
 };
 
+class VectorTransformNode : public ShaderNode {
+public:
+	SHADER_NODE_CLASS(VectorTransformNode)
+
+	ustring type;
+	ustring convert_from;
+	ustring convert_to;
+	
+	static ShaderEnum type_enum;
+	static ShaderEnum convert_space_enum;
+};
+
 class BumpNode : public ShaderNode {
 public:
 	SHADER_NODE_CLASS(BumpNode)
+	bool invert;
 };
 
 class RGBCurvesNode : public ShaderNode {
@@ -488,6 +538,7 @@ class RGBRampNode : public ShaderNode {
 public:
 	SHADER_NODE_CLASS(RGBRampNode)
 	float4 ramp[RAMP_TABLE_SIZE];
+	bool interpolate;
 };
 
 class SetNormalNode : public ShaderNode {

@@ -83,7 +83,7 @@ void BKE_curve_editNurb_keyIndex_free(struct EditNurb *editnurb);
 void BKE_curve_editNurb_free(struct Curve *cu);
 struct ListBase *BKE_curve_editNurbs_get(struct Curve *cu);
 
-float *BKE_curve_make_orco(struct Scene *scene, struct Object *ob);
+float *BKE_curve_make_orco(struct Scene *scene, struct Object *ob, int *r_numVerts);
 float *BKE_curve_surf_make_orco(struct Object *ob);
 
 void BKE_curve_bevelList_make(struct Object *ob);
@@ -128,6 +128,14 @@ bool BKE_nurb_type_convert(struct Nurb *nu, const short type, const bool use_han
 
 void BKE_nurb_points_add(struct Nurb *nu, int number);
 void BKE_nurb_bezierPoints_add(struct Nurb *nu, int number);
+
+struct BezTriple *BKE_nurb_bezt_get_next(struct Nurb *nu, struct BezTriple *bezt);
+struct BezTriple *BKE_nurb_bezt_get_prev(struct Nurb *nu, struct BezTriple *bezt);
+struct BPoint    *BKE_nurb_bpoint_get_next(struct Nurb *nu, struct BPoint *bp);
+struct BPoint    *BKE_nurb_bpoint_get_prev(struct Nurb *nu, struct BPoint *bp);
+
+void BKE_nurb_bezt_calc_normal(struct Nurb *nu, struct BezTriple *bezt, float r_normal[3]);
+void BKE_nurb_bezt_calc_plane(struct Nurb *nu, struct BezTriple *bezt, float r_plane[3]);
 
 void BKE_nurb_handle_calc(struct BezTriple *bezt, struct BezTriple *prev,  struct BezTriple *next, int mode);
 

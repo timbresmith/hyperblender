@@ -498,20 +498,22 @@ static int bm_mesh_flag_count(BMesh *bm, const char htype, const char hflag,
 	BMIter iter;
 	int tot = 0;
 
+	BLI_assert((htype & ~BM_ALL_NOLOOP) == 0);
+
 	if (htype & BM_VERT) {
-		for (ele = BM_iter_new(&iter, bm, BM_VERTS_OF_MESH, NULL); ele; ele = BM_iter_step(&iter)) {
+		BM_ITER_MESH (ele, &iter, bm, BM_VERTS_OF_MESH) {
 			if (respecthide && BM_elem_flag_test(ele, BM_ELEM_HIDDEN)) continue;
 			if (BM_elem_flag_test_bool(ele, hflag) == test_for_enabled) tot++;
 		}
 	}
 	if (htype & BM_EDGE) {
-		for (ele = BM_iter_new(&iter, bm, BM_EDGES_OF_MESH, NULL); ele; ele = BM_iter_step(&iter)) {
+		BM_ITER_MESH (ele, &iter, bm, BM_EDGES_OF_MESH) {
 			if (respecthide && BM_elem_flag_test(ele, BM_ELEM_HIDDEN)) continue;
 			if (BM_elem_flag_test_bool(ele, hflag) == test_for_enabled) tot++;
 		}
 	}
 	if (htype & BM_FACE) {
-		for (ele = BM_iter_new(&iter, bm, BM_FACES_OF_MESH, NULL); ele; ele = BM_iter_step(&iter)) {
+		BM_ITER_MESH (ele, &iter, bm, BM_FACES_OF_MESH) {
 			if (respecthide && BM_elem_flag_test(ele, BM_ELEM_HIDDEN)) continue;
 			if (BM_elem_flag_test_bool(ele, hflag) == test_for_enabled) tot++;
 		}
@@ -553,12 +555,12 @@ void BM_elem_select_set(BMesh *bm, BMElem *ele, const bool select)
 }
 
 /* this replaces the active flag used in uv/face mode */
-void BM_active_face_set(BMesh *bm, BMFace *efa)
+void BM_mesh_active_face_set(BMesh *bm, BMFace *efa)
 {
 	bm->act_face = efa;
 }
 
-BMFace *BM_active_face_get(BMesh *bm, const bool is_sloppy, const bool is_selected)
+BMFace *BM_mesh_active_face_get(BMesh *bm, const bool is_sloppy, const bool is_selected)
 {
 	if (bm->act_face && (!is_selected || BM_elem_flag_test(bm->act_face, BM_ELEM_SELECT))) {
 		return bm->act_face;
@@ -595,6 +597,45 @@ BMFace *BM_active_face_get(BMesh *bm, const bool is_sloppy, const bool is_select
 		}
 		return f; /* can still be null */
 	}
+	return NULL;
+}
+
+BMEdge *BM_mesh_active_edge_get(BMesh *bm)
+{
+	if (bm->selected.last) {
+		BMEditSelection *ese = bm->selected.last;
+
+		if (ese && ese->htype == BM_EDGE) {
+			return (BMEdge *)ese->ele;
+		}
+	}
+
+	return NULL;
+}
+
+BMVert *BM_mesh_active_vert_get(BMesh *bm)
+{
+	if (bm->selected.last) {
+		BMEditSelection *ese = bm->selected.last;
+
+		if (ese && ese->htype == BM_VERT) {
+			return (BMVert *)ese->ele;
+		}
+	}
+
+	return NULL;
+}
+
+BMElem *BM_mesh_active_elem_get(BMesh *bm)
+{
+	if (bm->selected.last) {
+		BMEditSelection *ese = bm->selected.last;
+
+		if (ese) {
+			return ese->ele;
+		}
+	}
+
 	return NULL;
 }
 
@@ -675,89 +716,34 @@ void BM_editselection_plane(BMEditSelection *ese, float r_plane[3])
 			else                        vec[2] = 1.0f;
 			cross_v3_v3v3(r_plane, eve->no, vec);
 		}
+		normalize_v3(r_plane);
 	}
 	else if (ese->htype == BM_EDGE) {
 		BMEdge *eed = (BMEdge *)ese->ele;
 
-		/* the plane is simple, it runs along the edge
-		 * however selecting different edges can swap the direction of the y axis.
-		 * this makes it less likely for the y axis of the manipulator
-		 * (running along the edge).. to flip less often.
-		 * at least its more predictable */
-		if (eed->v2->co[1] > eed->v1->co[1]) {  /* check which to do first */
-			sub_v3_v3v3(r_plane, eed->v2->co, eed->v1->co);
+		if (BM_edge_is_boundary(eed)) {
+			sub_v3_v3v3(r_plane, eed->l->v->co, eed->l->next->v->co);
 		}
 		else {
-			sub_v3_v3v3(r_plane, eed->v1->co, eed->v2->co);
+			/* the plane is simple, it runs along the edge
+			 * however selecting different edges can swap the direction of the y axis.
+			 * this makes it less likely for the y axis of the manipulator
+			 * (running along the edge).. to flip less often.
+			 * at least its more predictable */
+			if (eed->v2->co[1] > eed->v1->co[1]) {  /* check which to do first */
+				sub_v3_v3v3(r_plane, eed->v2->co, eed->v1->co);
+			}
+			else {
+				sub_v3_v3v3(r_plane, eed->v1->co, eed->v2->co);
+			}
 		}
-		
+
+		normalize_v3(r_plane);
 	}
 	else if (ese->htype == BM_FACE) {
 		BMFace *efa = (BMFace *)ese->ele;
-		float vec[3] = {0.0f, 0.0f, 0.0f};
-		
-		/* for now, use face normal */
-
-		/* make a fake plane thats at rightangles to the normal
-		 * we cant make a crossvec from a vec thats the same as the vec
-		 * unlikely but possible, so make sure if the normal is (0, 0, 1)
-		 * that vec isn't the same or in the same direction even. */
-		if (UNLIKELY(efa->len < 3)) {
-			/* crappy fallback method */
-			if      (efa->no[0] < 0.5f)	vec[0] = 1.0f;
-			else if (efa->no[1] < 0.5f)	vec[1] = 1.0f;
-			else                        vec[2] = 1.0f;
-			cross_v3_v3v3(r_plane, efa->no, vec);
-		}
-		else {
-			if (efa->len == 3) {
-				BMVert *verts[3];
-				float lens[3];
-				float difs[3];
-				int  order[3] = {0, 1, 2};
-
-				BM_face_as_array_vert_tri(efa, verts);
-
-				lens[0] = len_v3v3(verts[0]->co, verts[1]->co);
-				lens[1] = len_v3v3(verts[1]->co, verts[2]->co);
-				lens[2] = len_v3v3(verts[2]->co, verts[0]->co);
-
-				/* find the shortest or the longest loop */
-				difs[0] = fabsf(lens[1] - lens[2]);
-				difs[1] = fabsf(lens[2] - lens[0]);
-				difs[2] = fabsf(lens[0] - lens[1]);
-
-				axis_sort_v3(difs, order);
-				sub_v3_v3v3(r_plane, verts[order[0]]->co, verts[(order[0] + 1) % 3]->co);
-			}
-			else if (efa->len == 4) {
-				BMVert *verts[4];
-				float vecA[3], vecB[3];
-
-				// BM_iter_as_array(NULL, BM_VERTS_OF_FACE, efa, (void **)verts, 4);
-				BM_face_as_array_vert_quad(efa, verts);
-
-				sub_v3_v3v3(vecA, verts[3]->co, verts[2]->co);
-				sub_v3_v3v3(vecB, verts[0]->co, verts[1]->co);
-				add_v3_v3v3(r_plane, vecA, vecB);
-
-				sub_v3_v3v3(vecA, verts[0]->co, verts[3]->co);
-				sub_v3_v3v3(vecB, verts[1]->co, verts[2]->co);
-				add_v3_v3v3(vec, vecA, vecB);
-				/* use the biggest edge length */
-				if (dot_v3v3(r_plane, r_plane) < dot_v3v3(vec, vec)) {
-					copy_v3_v3(r_plane, vec);
-				}
-			}
-			else {
-				BMLoop *l_long  = BM_face_find_longest_loop(efa);
-
-				sub_v3_v3v3(r_plane, l_long->v->co, l_long->next->v->co);
-			}
-
-		}
+		BM_face_calc_plane(efa, r_plane);
 	}
-	normalize_v3(r_plane);
 }
 
 
@@ -822,7 +808,7 @@ void BM_select_history_validate(BMesh *bm)
 bool BM_select_history_active_get(BMesh *bm, BMEditSelection *ese)
 {
 	BMEditSelection *ese_last = bm->selected.last;
-	BMFace *efa = BM_active_face_get(bm, false, false);
+	BMFace *efa = BM_mesh_active_face_get(bm, false, false);
 
 	ese->next = ese->prev = NULL;
 
@@ -863,6 +849,8 @@ void BM_mesh_elem_hflag_disable_test(BMesh *bm, const char htype, const char hfl
 	const char flag_types[3] = {BM_VERT, BM_EDGE, BM_FACE};
 
 	int i;
+
+	BLI_assert((htype & ~BM_ALL_NOLOOP) == 0);
 
 	if (hflag & BM_ELEM_SELECT) {
 		BM_select_history_clear(bm);
@@ -932,6 +920,8 @@ void BM_mesh_elem_hflag_enable_test(BMesh *bm, const char htype, const char hfla
 	BMIter iter;
 	BMElem *ele;
 	int i;
+
+	BLI_assert((htype & ~BM_ALL_NOLOOP) == 0);
 
 	if (hflag & BM_ELEM_SELECT) {
 		BM_select_history_clear(bm);

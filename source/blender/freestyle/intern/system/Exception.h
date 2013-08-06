@@ -30,6 +30,10 @@
 
 #include "FreestyleConfig.h"
 
+#ifdef WITH_CXX_GUARDEDALLOC
+#include "MEM_guardedalloc.h"
+#endif
+
 namespace Freestyle {
 
 class LIB_SYSTEM_EXPORT Exception
@@ -60,6 +64,10 @@ public:
 
 private:
 	static exception_type _exception;
+
+#ifdef WITH_CXX_GUARDEDALLOC
+	MEM_CXX_CLASS_ALLOC_FUNCS("Freestyle:Exception")
+#endif
 };
 
 } /* namespace Freestyle */

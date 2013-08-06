@@ -237,6 +237,8 @@ void ImageTextureNode::compile(SVMCompiler& compiler)
 
 void ImageTextureNode::compile(OSLCompiler& compiler)
 {
+	ShaderOutput *alpha_out = output("Alpha");
+
 	tex_mapping.compile(compiler);
 
 	if(is_float == -1)
@@ -249,6 +251,8 @@ void ImageTextureNode::compile(OSLCompiler& compiler)
 		compiler.parameter("color_space", "sRGB");
 	compiler.parameter("projection", projection);
 	compiler.parameter("projection_blend", projection_blend);
+	compiler.parameter("is_float", is_float);
+	compiler.parameter("use_alpha", !alpha_out->links.empty());
 	compiler.add(this, "node_image_texture");
 }
 
@@ -357,6 +361,8 @@ void EnvironmentTextureNode::compile(SVMCompiler& compiler)
 
 void EnvironmentTextureNode::compile(OSLCompiler& compiler)
 {
+	ShaderOutput *alpha_out = output("Alpha");
+
 	tex_mapping.compile(compiler);
 
 	if(is_float == -1)
@@ -368,6 +374,8 @@ void EnvironmentTextureNode::compile(OSLCompiler& compiler)
 		compiler.parameter("color_space", "Linear");
 	else
 		compiler.parameter("color_space", "sRGB");
+	compiler.parameter("is_float", is_float);
+	compiler.parameter("use_alpha", !alpha_out->links.empty());
 	compiler.add(this, "node_environment_texture");
 }
 
@@ -380,7 +388,7 @@ static float2 sky_spherical_coordinates(float3 dir)
 
 static float sky_perez_function(float lam[6], float theta, float gamma)
 {
-	return (1.f + lam[0]*expf(lam[1]/cosf(theta))) * (1.f + lam[2]*expf(lam[3]*gamma)  + lam[4]*cosf(gamma)*cosf(gamma));
+	return (1.0f + lam[0]*expf(lam[1]/cosf(theta))) * (1.0f + lam[2]*expf(lam[3]*gamma)  + lam[4]*cosf(gamma)*cosf(gamma));
 }
 
 static void sky_texture_precompute(KernelSunSky *ksunsky, float3 dir, float turbidity)
@@ -1113,11 +1121,14 @@ void MappingNode::compile(OSLCompiler& compiler)
 
 /* Convert */
 
-ConvertNode::ConvertNode(ShaderSocketType from_, ShaderSocketType to_)
+ConvertNode::ConvertNode(ShaderSocketType from_, ShaderSocketType to_, bool autoconvert)
 : ShaderNode("convert")
 {
 	from = from_;
 	to = to_;
+
+	if(autoconvert)
+		special_type = SHADER_SPECIAL_TYPE_AUTOCONVERT;
 
 	assert(from != to);
 
@@ -1263,7 +1274,7 @@ void ProxyNode::compile(OSLCompiler& compiler)
 /* BSDF Closure */
 
 BsdfNode::BsdfNode(bool scattering_)
-: ShaderNode("subsurface_scattering"), scattering(scattering_)
+: ShaderNode("bsdf"), scattering(scattering_)
 {
 	closure = ccl::CLOSURE_BSSRDF_ID;
 
@@ -1478,6 +1489,41 @@ void RefractionBsdfNode::compile(OSLCompiler& compiler)
 {
 	compiler.parameter("distribution", distribution);
 	compiler.add(this, "node_refraction_bsdf");
+}
+
+/* Toon BSDF Closure */
+
+static ShaderEnum toon_component_init()
+{
+	ShaderEnum enm;
+
+	enm.insert("Diffuse", CLOSURE_BSDF_DIFFUSE_TOON_ID);
+	enm.insert("Glossy", CLOSURE_BSDF_GLOSSY_TOON_ID);
+
+	return enm;
+}
+
+ShaderEnum ToonBsdfNode::component_enum = toon_component_init();
+
+ToonBsdfNode::ToonBsdfNode()
+{
+	component = ustring("Diffuse");
+
+	add_input("Size", SHADER_SOCKET_FLOAT, 0.5f);
+	add_input("Smooth", SHADER_SOCKET_FLOAT, 0.0f);
+}
+
+void ToonBsdfNode::compile(SVMCompiler& compiler)
+{
+	closure = (ClosureType)component_enum[component];
+	
+	BsdfNode::compile(compiler, input("Size"), input("Smooth"));
+}
+
+void ToonBsdfNode::compile(OSLCompiler& compiler)
+{
+	compiler.parameter("component", component);
+	compiler.add(this, "node_toon_bsdf");
 }
 
 /* Velvet BSDF Closure */
@@ -2018,6 +2064,7 @@ LightPathNode::LightPathNode()
 	add_output("Is Reflection Ray", SHADER_SOCKET_FLOAT);
 	add_output("Is Transmission Ray", SHADER_SOCKET_FLOAT);
 	add_output("Ray Length", SHADER_SOCKET_FLOAT);
+	add_output("Ray Depth", SHADER_SOCKET_FLOAT);
 }
 
 void LightPathNode::compile(SVMCompiler& compiler)
@@ -2072,6 +2119,12 @@ void LightPathNode::compile(SVMCompiler& compiler)
 		compiler.stack_assign(out);
 		compiler.add_node(NODE_LIGHT_PATH, NODE_LP_ray_length, out->stack_offset);
 	}
+	
+	out = output("Ray Depth");
+	if(!out->links.empty()) {
+		compiler.stack_assign(out);
+		compiler.add_node(NODE_LIGHT_PATH, NODE_LP_ray_depth, out->stack_offset);
+	}
 
 }
 
@@ -2083,7 +2136,7 @@ void LightPathNode::compile(OSLCompiler& compiler)
 /* Light Falloff */
 
 LightFalloffNode::LightFalloffNode()
-: ShaderNode("light_path")
+: ShaderNode("light_fallof")
 {
 	add_input("Strength", SHADER_SOCKET_FLOAT, 100.0f);
 	add_input("Smooth", SHADER_SOCKET_FLOAT, 0.0f);
@@ -2281,6 +2334,8 @@ HairInfoNode::HairInfoNode()
 	add_output("Intercept", SHADER_SOCKET_FLOAT);
 	add_output("Thickness", SHADER_SOCKET_FLOAT);
 	add_output("Tangent Normal", SHADER_SOCKET_NORMAL);
+	/*output for minimum hair width transparency - deactivated*/
+	/*add_output("Fade", SHADER_SOCKET_FLOAT);*/
 }
 
 void HairInfoNode::attributes(AttributeRequestSet *attributes)
@@ -2321,6 +2376,12 @@ void HairInfoNode::compile(SVMCompiler& compiler)
 		compiler.stack_assign(out);
 		compiler.add_node(NODE_HAIR_INFO, NODE_INFO_CURVE_TANGENT_NORMAL, out->stack_offset);
 	}
+
+	/*out = output("Fade");
+	if(!out->links.empty()) {
+		compiler.stack_assign(out);
+		compiler.add_node(NODE_HAIR_INFO, NODE_INFO_CURVE_FADE, out->stack_offset);
+	}*/
 
 }
 
@@ -2590,6 +2651,37 @@ void CombineRGBNode::compile(OSLCompiler& compiler)
 	compiler.add(this, "node_combine_rgb");
 }
 
+/* Combine HSV */
+CombineHSVNode::CombineHSVNode()
+: ShaderNode("combine_hsv")
+{
+	add_input("H", SHADER_SOCKET_FLOAT);
+	add_input("S", SHADER_SOCKET_FLOAT);
+	add_input("V", SHADER_SOCKET_FLOAT);
+	add_output("Color", SHADER_SOCKET_COLOR);
+}
+
+void CombineHSVNode::compile(SVMCompiler& compiler)
+{
+	ShaderInput *hue_in = input("H");
+	ShaderInput *saturation_in = input("S");
+	ShaderInput *value_in = input("V");
+	ShaderOutput *color_out = output("Color");
+
+	compiler.stack_assign(color_out);
+	compiler.stack_assign(hue_in);
+	compiler.stack_assign(saturation_in);
+	compiler.stack_assign(value_in);
+	
+	compiler.add_node(NODE_COMBINE_HSV, hue_in->stack_offset, saturation_in->stack_offset, value_in->stack_offset);
+	compiler.add_node(NODE_COMBINE_HSV, color_out->stack_offset);
+}
+
+void CombineHSVNode::compile(OSLCompiler& compiler)
+{
+	compiler.add(this, "node_combine_hsv");
+}
+
 /* Gamma */
 GammaNode::GammaNode()
 : ShaderNode("gamma")
@@ -2683,7 +2775,39 @@ void SeparateRGBNode::compile(OSLCompiler& compiler)
 	compiler.add(this, "node_separate_rgb");
 }
 
-/* Separate RGB */
+/* Separate HSV */
+SeparateHSVNode::SeparateHSVNode()
+: ShaderNode("separate_hsv")
+{
+	add_input("Color", SHADER_SOCKET_COLOR);
+	add_output("H", SHADER_SOCKET_FLOAT);
+	add_output("S", SHADER_SOCKET_FLOAT);
+	add_output("V", SHADER_SOCKET_FLOAT);
+}
+
+void SeparateHSVNode::compile(SVMCompiler& compiler)
+{
+	ShaderInput *color_in = input("Color");
+	ShaderOutput *hue_out = output("H");
+	ShaderOutput *saturation_out = output("S");
+	ShaderOutput *value_out = output("V");
+
+	compiler.stack_assign(color_in);
+	compiler.stack_assign(hue_out);
+	compiler.stack_assign(saturation_out);
+	compiler.stack_assign(value_out);
+	
+	compiler.add_node(NODE_SEPARATE_HSV, color_in->stack_offset, hue_out->stack_offset, saturation_out->stack_offset);
+	compiler.add_node(NODE_SEPARATE_HSV, value_out->stack_offset);
+
+}
+
+void SeparateHSVNode::compile(OSLCompiler& compiler)
+{
+	compiler.add(this, "node_separate_hsv");
+}
+
+/* Hue Saturation Value */
 HSVNode::HSVNode()
 : ShaderNode("hsv")
 {
@@ -2820,7 +2944,7 @@ void CameraNode::compile(OSLCompiler& compiler)
 /* Fresnel */
 
 FresnelNode::FresnelNode()
-: ShaderNode("Fresnel")
+: ShaderNode("fresnel")
 {
 	add_input("Normal", SHADER_SOCKET_NORMAL, ShaderInput::NORMAL, ShaderInput::USE_OSL);
 	add_input("IOR", SHADER_SOCKET_FLOAT, 1.45f);
@@ -2842,10 +2966,10 @@ void FresnelNode::compile(OSLCompiler& compiler)
 	compiler.add(this, "node_fresnel");
 }
 
-/* Blend Weight */
+/* Layer Weight */
 
 LayerWeightNode::LayerWeightNode()
-: ShaderNode("LayerWeight")
+: ShaderNode("layer_weight")
 {
 	add_input("Normal", SHADER_SOCKET_NORMAL, ShaderInput::NORMAL, ShaderInput::USE_OSL);
 	add_input("Blend", SHADER_SOCKET_FLOAT, 0.5f);
@@ -2879,6 +3003,81 @@ void LayerWeightNode::compile(SVMCompiler& compiler)
 void LayerWeightNode::compile(OSLCompiler& compiler)
 {
 	compiler.add(this, "node_layer_weight");
+}
+
+/* Wireframe */
+
+WireframeNode::WireframeNode()
+: ShaderNode("wireframe")
+{
+	add_input("Size", SHADER_SOCKET_FLOAT, 0.01f);
+	add_output("Fac", SHADER_SOCKET_FLOAT);
+	
+	use_pixel_size = false;
+}
+
+void WireframeNode::compile(SVMCompiler& compiler)
+{
+	ShaderInput *size_in = input("Size");
+	ShaderOutput *fac_out = output("Fac");
+
+	compiler.stack_assign(size_in);
+	compiler.stack_assign(fac_out);
+	compiler.add_node(NODE_WIREFRAME, size_in->stack_offset, fac_out->stack_offset, use_pixel_size);
+}
+
+void WireframeNode::compile(OSLCompiler& compiler)
+{
+	compiler.parameter("use_pixel_size", use_pixel_size);
+	compiler.add(this, "node_wireframe");
+}
+
+/* Wavelength */
+
+WavelengthNode::WavelengthNode()
+: ShaderNode("wavelength")
+{
+	add_input("Wavelength", SHADER_SOCKET_FLOAT, 500.0f);
+	add_output("Color", SHADER_SOCKET_COLOR);
+}
+
+void WavelengthNode::compile(SVMCompiler& compiler)
+{
+	ShaderInput *wavelength_in = input("Wavelength");
+	ShaderOutput *color_out = output("Color");
+
+	compiler.stack_assign(wavelength_in);
+	compiler.stack_assign(color_out);
+	compiler.add_node(NODE_WAVELENGTH, wavelength_in->stack_offset, color_out->stack_offset);
+}
+
+void WavelengthNode::compile(OSLCompiler& compiler)
+{
+	compiler.add(this, "node_wavelength");
+}
+
+/* Blackbody */
+
+BlackbodyNode::BlackbodyNode()
+: ShaderNode("blackbody")
+{
+	add_input("Temperature", SHADER_SOCKET_FLOAT, 1200.0f);
+	add_output("Color", SHADER_SOCKET_COLOR);
+}
+
+void BlackbodyNode::compile(SVMCompiler& compiler)
+{
+	ShaderInput *temperature_in = input("Temperature");
+	ShaderOutput *color_out = output("Color");
+
+	compiler.stack_assign(temperature_in);
+	compiler.stack_assign(color_out);
+	compiler.add_node(NODE_BLACKBODY, temperature_in->stack_offset, color_out->stack_offset);
+}
+
+void BlackbodyNode::compile(OSLCompiler& compiler)
+{
+	compiler.add(this, "node_blackbody");
 }
 
 /* Output */
@@ -2949,6 +3148,7 @@ static ShaderEnum math_type_init()
 	enm.insert("Round", NODE_MATH_ROUND);
 	enm.insert("Less Than", NODE_MATH_LESS_THAN);
 	enm.insert("Greater Than", NODE_MATH_GREATER_THAN);
+	enm.insert("Modulo", NODE_MATH_MODULO);
 
 	return enm;
 }
@@ -3032,11 +3232,72 @@ void VectorMathNode::compile(OSLCompiler& compiler)
 	compiler.add(this, "node_vector_math");
 }
 
+/* VectorTransform */
+
+VectorTransformNode::VectorTransformNode()
+: ShaderNode("vector_transform")
+{
+	type = ustring("Vector");
+	convert_from = ustring("world");
+	convert_to = ustring("object");
+
+	add_input("Vector", SHADER_SOCKET_VECTOR);
+	add_output("Vector",  SHADER_SOCKET_VECTOR);
+}
+
+static ShaderEnum vector_transform_type_init()
+{
+	ShaderEnum enm;
+
+	enm.insert("Vector", NODE_VECTOR_TRANSFORM_TYPE_VECTOR);
+	enm.insert("Point", NODE_VECTOR_TRANSFORM_TYPE_POINT);
+	enm.insert("Normal", NODE_VECTOR_TRANSFORM_TYPE_NORMAL);
+
+	return enm;
+}
+
+static ShaderEnum vector_transform_convert_space_init()
+{
+	ShaderEnum enm;
+
+	enm.insert("world", NODE_VECTOR_TRANSFORM_CONVERT_SPACE_WORLD);
+	enm.insert("object", NODE_VECTOR_TRANSFORM_CONVERT_SPACE_OBJECT);
+	enm.insert("camera", NODE_VECTOR_TRANSFORM_CONVERT_SPACE_CAMERA);
+
+	return enm;
+}
+
+ShaderEnum VectorTransformNode::type_enum = vector_transform_type_init();
+ShaderEnum VectorTransformNode::convert_space_enum = vector_transform_convert_space_init();
+
+void VectorTransformNode::compile(SVMCompiler& compiler)
+{
+	ShaderInput *vector_in = input("Vector");
+	ShaderOutput *vector_out = output("Vector");
+
+	compiler.stack_assign(vector_in);
+	compiler.stack_assign(vector_out);
+
+	compiler.add_node(NODE_VECTOR_TRANSFORM,
+		compiler.encode_uchar4(type_enum[type], convert_space_enum[convert_from], convert_space_enum[convert_to]),
+		compiler.encode_uchar4(vector_in->stack_offset, vector_out->stack_offset));
+}
+
+void VectorTransformNode::compile(OSLCompiler& compiler)
+{
+	compiler.parameter("type", type);
+	compiler.parameter("convert_from", convert_from);
+	compiler.parameter("convert_to", convert_to);
+	compiler.add(this, "node_vector_transform");
+}
+
 /* BumpNode */
 
 BumpNode::BumpNode()
 : ShaderNode("bump")
 {
+	invert = false;
+
 	/* this input is used by the user, but after graph transform it is no longer
 	 * used and moved to sampler center/x/y instead */
 	add_input("Height", SHADER_SOCKET_FLOAT);
@@ -3044,8 +3305,9 @@ BumpNode::BumpNode()
 	add_input("SampleCenter", SHADER_SOCKET_FLOAT);
 	add_input("SampleX", SHADER_SOCKET_FLOAT);
 	add_input("SampleY", SHADER_SOCKET_FLOAT);
-	add_input("NormalIn", SHADER_SOCKET_NORMAL, ShaderInput::NORMAL);
-	add_input("Strength", SHADER_SOCKET_FLOAT, 0.1f);
+	add_input("Normal", SHADER_SOCKET_NORMAL, ShaderInput::NORMAL);
+	add_input("Strength", SHADER_SOCKET_FLOAT, 1.0f);
+	add_input("Distance", SHADER_SOCKET_FLOAT, 0.1f);
 
 	add_output("Normal", SHADER_SOCKET_NORMAL);
 }
@@ -3055,14 +3317,16 @@ void BumpNode::compile(SVMCompiler& compiler)
 	ShaderInput *center_in = input("SampleCenter");
 	ShaderInput *dx_in = input("SampleX");
 	ShaderInput *dy_in = input("SampleY");
-	ShaderInput *normal_in = input("NormalIn");
-	ShaderInput *intensity_in = input("Strength");
+	ShaderInput *normal_in = input("Normal");
+	ShaderInput *strength_in = input("Strength");
+	ShaderInput *distance_in = input("Distance");
 	ShaderOutput *normal_out = output("Normal");
 
 	compiler.stack_assign(center_in);
 	compiler.stack_assign(dx_in);
 	compiler.stack_assign(dy_in);
-	compiler.stack_assign(intensity_in);
+	compiler.stack_assign(strength_in);
+	compiler.stack_assign(distance_in);
 	compiler.stack_assign(normal_out);
 
 	if(normal_in->link)
@@ -3070,14 +3334,15 @@ void BumpNode::compile(SVMCompiler& compiler)
 	
 	/* pack all parameters in the node */
 	compiler.add_node(NODE_SET_BUMP,
-		normal_in->stack_offset,
+		compiler.encode_uchar4(normal_in->stack_offset, distance_in->stack_offset, invert),
 		compiler.encode_uchar4(center_in->stack_offset, dx_in->stack_offset,
-			dy_in->stack_offset, intensity_in->stack_offset),
+			dy_in->stack_offset, strength_in->stack_offset),
 		normal_out->stack_offset);
 }
 
 void BumpNode::compile(OSLCompiler& compiler)
 {
+	compiler.parameter("invert", invert);
 	compiler.add(this, "node_bump");
 }
 
@@ -3122,7 +3387,7 @@ void RGBCurvesNode::compile(OSLCompiler& compiler)
 /* VectorCurvesNode */
 
 VectorCurvesNode::VectorCurvesNode()
-: ShaderNode("rgb_curves")
+: ShaderNode("vector_curves")
 {
 	add_input("Fac", SHADER_SOCKET_FLOAT);
 	add_input("Vector", SHADER_SOCKET_VECTOR);
@@ -3165,6 +3430,8 @@ RGBRampNode::RGBRampNode()
 	add_input("Fac", SHADER_SOCKET_FLOAT);
 	add_output("Color", SHADER_SOCKET_COLOR);
 	add_output("Alpha", SHADER_SOCKET_FLOAT);
+
+	interpolate = true;
 }
 
 void RGBRampNode::compile(SVMCompiler& compiler)
@@ -3179,7 +3446,12 @@ void RGBRampNode::compile(SVMCompiler& compiler)
 	if(!alpha_out->links.empty())
 		compiler.stack_assign(alpha_out);
 
-	compiler.add_node(NODE_RGB_RAMP, fac_in->stack_offset, color_out->stack_offset, alpha_out->stack_offset);
+	compiler.add_node(NODE_RGB_RAMP,
+		compiler.encode_uchar4(
+			fac_in->stack_offset,
+			color_out->stack_offset,
+			alpha_out->stack_offset),
+		interpolate);
 	compiler.add_array(ramp, RAMP_TABLE_SIZE);
 }
 
@@ -3199,6 +3471,7 @@ void RGBRampNode::compile(OSLCompiler& compiler)
 
 	compiler.parameter_color_array("ramp_color", ramp_color, RAMP_TABLE_SIZE);
 	compiler.parameter_array("ramp_alpha", ramp_alpha, RAMP_TABLE_SIZE);
+	compiler.parameter("ramp_interpolate", interpolate);
 	
 	compiler.add(this, "node_rgb_ramp");
 }
@@ -3257,6 +3530,8 @@ static ShaderEnum normal_map_space_init()
 	enm.insert("Tangent", NODE_NORMAL_MAP_TANGENT);
 	enm.insert("Object", NODE_NORMAL_MAP_OBJECT);
 	enm.insert("World", NODE_NORMAL_MAP_WORLD);
+	enm.insert("Blender Object", NODE_NORMAL_MAP_BLENDER_OBJECT);
+	enm.insert("Blender World", NODE_NORMAL_MAP_BLENDER_WORLD);
 
 	return enm;
 }
@@ -3370,7 +3645,7 @@ ShaderEnum TangentNode::direction_type_enum = tangent_direction_type_init();
 ShaderEnum TangentNode::axis_enum = tangent_axis_init();
 
 TangentNode::TangentNode()
-: ShaderNode("normal_map")
+: ShaderNode("tangent")
 {
 	direction_type = ustring("Radial");
 	axis = ustring("X");

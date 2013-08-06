@@ -31,37 +31,36 @@
  *  \ingroup bli
  */
 
-
 #include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 #ifndef WIN32
-#include <dirent.h>
+#  include <dirent.h>
 #endif
 
 #include <time.h>
 #include <sys/stat.h>
 
 #if defined(__sun__) || defined(__sun) || defined(__NetBSD__)
-#include <sys/statvfs.h> /* Other modern unix os's should probably use this also */
-#elif !defined(__FreeBSD__) && !defined(linux) && (defined(__sparc) || defined(__sparc__))
-#include <sys/statfs.h>
+#  include <sys/statvfs.h> /* Other modern unix os's should probably use this also */
+#elif !defined(__FreeBSD__) && !defined(__linux__) && (defined(__sparc) || defined(__sparc__))
+#  include <sys/statfs.h>
 #endif
 
-#if defined(__FreeBSD__) || defined(__OpenBSD__)
-#include <sys/param.h>
-#include <sys/mount.h>
+#if defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+#  include <sys/param.h>
+#  include <sys/mount.h>
 #endif
 
-#if defined(linux) || defined(__CYGWIN32__) || defined(__hpux) || defined(__GNU__) || defined(__GLIBC__)
+#if defined(__linux__) || defined(__CYGWIN32__) || defined(__hpux) || defined(__GNU__) || defined(__GLIBC__)
 #include <sys/vfs.h>
 #endif
 
 #ifdef __APPLE__
-/* For statfs */
-#include <sys/param.h>
-#include <sys/mount.h>
+   /* For statfs */
+#  include <sys/param.h>
+#  include <sys/mount.h>
 #endif /* __APPLE__ */
 
 
@@ -195,13 +194,13 @@ double BLI_dir_free_space(const char *dir)
 		strcpy(name, "/");
 	}
 
-#if defined(__FreeBSD__) || defined(linux) || defined(__OpenBSD__) || defined(__APPLE__) || defined(__GNU__) || defined(__GLIBC__)
+#if defined(__FreeBSD__) || defined(__linux__) || defined(__OpenBSD__) || defined(__APPLE__) || defined(__GNU__) || defined(__GLIBC__)
 	if (statfs(name, &disk)) return(-1);
 #endif
 
 #if defined(__sun__) || defined(__sun) || defined(__NetBSD__)
 	if (statvfs(name, &disk)) return(-1);
-#elif !defined(__FreeBSD__) && !defined(linux) && (defined(__sparc) || defined(__sparc__))
+#elif !defined(__FreeBSD__) && !defined(__linux__) && (defined(__sparc) || defined(__sparc__))
 	/* WARNING - This may not be supported by geeneric unix os's - Campbell */
 	if (statfs(name, &disk, sizeof(struct statfs), 0)) return(-1);
 #endif
@@ -311,16 +310,14 @@ static void bli_builddir(struct BuildDirCtx *dir_ctx, const char *dirname)
  */
 static void bli_adddirstrings(struct BuildDirCtx *dir_ctx)
 {
-	char datum[100];
-//	char buf[512];  // UNUSED
-	char size[250];
 	const char *types[8] = {"---", "--x", "-w-", "-wx", "r--", "r-x", "rw-", "rwx"};
 	/* symbolic display, indexed by mode field value */
-	int num, mode;
+	int num;
 #ifdef WIN32
 	__int64 st_size;
 #else
 	off_t st_size;
+	int mode;
 #endif
 	
 	struct direntry *file;
@@ -328,8 +325,10 @@ static void bli_adddirstrings(struct BuildDirCtx *dir_ctx)
 	time_t zero = 0;
 	
 	for (num = 0, file = dir_ctx->files; num < dir_ctx->nrfiles; num++, file++) {
+
+
+		/* Mode */
 #ifdef WIN32
-		mode = 0;
 		BLI_strncpy(file->mode1, types[0], sizeof(file->mode1));
 		BLI_strncpy(file->mode2, types[0], sizeof(file->mode2));
 		BLI_strncpy(file->mode3, types[0], sizeof(file->mode3));
@@ -355,6 +354,8 @@ static void bli_adddirstrings(struct BuildDirCtx *dir_ctx)
 		}
 #endif
 
+
+		/* User */
 #ifdef WIN32
 		strcpy(file->owner, "user");
 #else
@@ -370,12 +371,16 @@ static void bli_adddirstrings(struct BuildDirCtx *dir_ctx)
 		}
 #endif
 
+
+		/* Time */
 		tm = localtime(&file->s.st_mtime);
 		// prevent impossible dates in windows
 		if (tm == NULL) tm = localtime(&zero);
 		strftime(file->time, sizeof(file->time), "%H:%M", tm);
 		strftime(file->date, sizeof(file->date), "%d-%b-%y", tm);
 
+
+		/* Size */
 		/*
 		 * Seems st_size is signed 32-bit value in *nix and Windows.  This
 		 * will buy us some time until files get bigger than 4GB or until
@@ -383,47 +388,18 @@ static void bli_adddirstrings(struct BuildDirCtx *dir_ctx)
 		 */
 		st_size = file->s.st_size;
 
-		/* FIXME: Either change decimal prefixes to binary ones
-		 * <http://en.wikipedia.org/wiki/Binary_prefix>, or change
-		 * divisor factors from 1024 to 1000. */
 		if (st_size > 1024 * 1024 * 1024) {
-			BLI_snprintf(file->size, sizeof(file->size), "%.2f GB", ((double)st_size) / (1024 * 1024 * 1024));
+			BLI_snprintf(file->size, sizeof(file->size), "%.2f GiB", ((double)st_size) / (1024 * 1024 * 1024));
 		}
 		else if (st_size > 1024 * 1024) {
-			BLI_snprintf(file->size, sizeof(file->size), "%.1f MB", ((double)st_size) / (1024 * 1024));
+			BLI_snprintf(file->size, sizeof(file->size), "%.1f MiB", ((double)st_size) / (1024 * 1024));
 		}
 		else if (st_size > 1024) {
-			BLI_snprintf(file->size, sizeof(file->size), "%d KB", (int)(st_size / 1024));
+			BLI_snprintf(file->size, sizeof(file->size), "%d KiB", (int)(st_size / 1024));
 		}
 		else {
 			BLI_snprintf(file->size, sizeof(file->size), "%d B", (int)st_size);
 		}
-
-		strftime(datum, 32, "%d-%b-%y %H:%M", tm); /* XXX, is this used? - campbell */
-
-		if (st_size < 1000) {
-			BLI_snprintf(size, sizeof(size), "%10d",
-			             (int) st_size);
-		}
-		else if (st_size < 1000 * 1000) {
-			BLI_snprintf(size, sizeof(size), "%6d %03d",
-			             (int) (st_size / 1000), (int) (st_size % 1000));
-		}
-		else if (st_size < 100 * 1000 * 1000) {
-			BLI_snprintf(size, sizeof(size), "%2d %03d %03d",
-			             (int) (st_size / (1000 * 1000)), (int) ((st_size / 1000) % 1000), (int) (st_size % 1000));
-		}
-		else {
-			/* XXX, whats going on here?. 2x calls - campbell */
-			BLI_snprintf(size, sizeof(size), "> %4.1f M", (double) (st_size / (1024.0 * 1024.0)));
-			BLI_snprintf(size, sizeof(size), "%10d", (int) st_size);
-		}
-
-#if 0
-		BLI_snprintf(buf, sizeof(buf), "%s %s %s %7s %s %s %10s %s",
-		             file->mode1, file->mode2, file->mode3, file->owner,
-		             file->date, file->time, size, file->relname);
-#endif
 	}
 }
 
@@ -545,7 +521,14 @@ int BLI_stat(const char *path, struct stat *buffer)
 {
 	int r;
 	UTF16_ENCODE(path);
+
+	/* workaround error in MinGW64 headers, normally, a wstat should work */
+	#ifndef __MINGW64__
 	r = _wstat(path_16, buffer);
+	#else
+	r = _wstati64(path_16, buffer);
+	#endif
+
 	UTF16_UN_ENCODE(path);
 	return r;
 }
@@ -634,13 +617,23 @@ void BLI_file_free_lines(LinkNode *lines)
 bool BLI_file_older(const char *file1, const char *file2)
 {
 #ifdef WIN32
+#ifndef __MINGW32__
 	struct _stat st1, st2;
+#else
+	struct _stati64 st1, st2;
+#endif
 
 	UTF16_ENCODE(file1);
 	UTF16_ENCODE(file2);
 	
+#ifndef __MINGW32__
 	if (_wstat(file1_16, &st1)) return false;
 	if (_wstat(file2_16, &st2)) return false;
+#else
+	if (_wstati64(file1_16, &st1)) return false;
+	if (_wstati64(file2_16, &st2)) return false;
+#endif
+
 
 	UTF16_UN_ENCODE(file2);
 	UTF16_UN_ENCODE(file1);

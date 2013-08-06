@@ -174,10 +174,7 @@ void WM_init(bContext *C, int argc, const char **argv)
 	BPY_context_set(C); /* necessary evil */
 	BPY_python_start(argc, argv);
 
-	BPY_driver_reset();
-	BPY_app_handlers_reset(FALSE); /* causes addon callbacks to be freed [#28068],
-	                                * but this is actually what we want. */
-	BPY_modules_load_user(C);
+	BPY_python_reset(C);
 #else
 	(void)argc; /* unused */
 	(void)argv; /* unused */
@@ -223,13 +220,14 @@ void WM_init(bContext *C, int argc, const char **argv)
 	
 	/* load last session, uses regular file reading so it has to be in end (after init py etc) */
 	if (U.uiflag2 & USER_KEEP_SESSION) {
-		wm_recover_last_session(C, NULL);
+		/* calling WM_recover_last_session(C, NULL) has been moved to creator.c */
+		/* that prevents loading both the kept session, and the file on the command line */
 	}
 	else {
 		/* normally 'wm_homefile_read' will do this,
 		 * however python is not initialized when called from this function.
 		 *
-		 * unlikey any handlers are set but its possible,
+		 * unlikely any handlers are set but its possible,
 		 * note that recovering the last session does its own callbacks. */
 		BLI_callback_exec(CTX_data_main(C), NULL, BLI_CB_EVT_LOAD_POST);
 	}
@@ -437,6 +435,10 @@ void WM_exit_ext(bContext *C, const short do_python)
 	
 	BKE_mball_cubeTable_free();
 	
+	/* render code might still access databases */
+	RE_FreeAllRender();
+	RE_engines_exit();
+	
 	ED_preview_free_dbase();  /* frees a Main dbase, before free_blender! */
 
 	if (C && wm)
@@ -466,9 +468,6 @@ void WM_exit_ext(bContext *C, const short do_python)
 #endif
 	
 	ANIM_keyingset_infos_exit();
-	
-	RE_FreeAllRender();
-	RE_engines_exit();
 	
 //	free_txt_data();
 	

@@ -15,11 +15,6 @@
  * along with this program; if not, write to the Free Software Foundation,
  * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
  *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- *
- * The Original Code is: none of this file.
- *
  * Contributor(s): Daniel Dunbar, Joseph Eagar
  *
  * ***** END GPL LICENSE BLOCK *****
@@ -28,11 +23,14 @@
 
 /** \file blender/blenlib/intern/edgehash.c
  *  \ingroup bli
+ *
+ * \note Based on 'BLI_ghash.c', make sure these stay in sync.
  */
 
 
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 
 #include "MEM_guardedalloc.h"
 
@@ -40,8 +38,16 @@
 #include "BLI_edgehash.h"
 #include "BLI_mempool.h"
 
+#ifdef __GNUC__
+#  pragma GCC diagnostic error "-Wsign-conversion"
+#  if (__GNUC__ * 100 + __GNUC_MINOR__) >= 406  /* gcc4.6+ only */
+#    pragma GCC diagnostic error "-Wsign-compare"
+#    pragma GCC diagnostic error "-Wconversion"
+#  endif
+#endif
+
 /**************inlined code************/
-static unsigned int _ehash_hashsizes[] = {
+static const unsigned int _ehash_hashsizes[] = {
 	1, 3, 5, 11, 17, 37, 67, 131, 257, 521, 1031, 2053, 4099, 8209,
 	16411, 32771, 65537, 131101, 262147, 524309, 1048583, 2097169,
 	4194319, 8388617, 16777259, 33554467, 67108879, 134217757,
@@ -70,7 +76,7 @@ struct EdgeEntry {
 struct EdgeHash {
 	EdgeEntry **buckets;
 	BLI_mempool *epool;
-	int nbuckets, nentries, cursize;
+	unsigned int nbuckets, nentries, cursize;
 };
 
 /***/
@@ -101,29 +107,27 @@ void BLI_edgehash_insert(EdgeHash *eh, unsigned int v0, unsigned int v1, void *v
 
 	hash = EDGE_HASH(v0, v1) % eh->nbuckets;
 
+	e->next = eh->buckets[hash];
 	e->v0 = v0;
 	e->v1 = v1;
 	e->val = val;
-	e->next = eh->buckets[hash];
 	eh->buckets[hash] = e;
 
-	if (++eh->nentries > eh->nbuckets * 3) {
+	if (UNLIKELY(++eh->nentries > eh->nbuckets / 2)) {
 		EdgeEntry **old = eh->buckets;
-		int i, nold = eh->nbuckets;
+		const unsigned int nold = eh->nbuckets;
+		unsigned int i;
 
 		eh->nbuckets = _ehash_hashsizes[++eh->cursize];
-		eh->buckets = MEM_mallocN(eh->nbuckets * sizeof(*eh->buckets), "eh buckets");
-		memset(eh->buckets, 0, eh->nbuckets * sizeof(*eh->buckets));
+		eh->buckets = MEM_callocN(eh->nbuckets * sizeof(*eh->buckets), "eh buckets");
 
 		for (i = 0; i < nold; i++) {
-			for (e = old[i]; e; ) {
-				EdgeEntry *n = e->next;
-
+			EdgeEntry *e_next;
+			for (e = old[i]; e; e = e_next) {
+				e_next = e->next;
 				hash = EDGE_HASH(e->v0, e->v1) % eh->nbuckets;
 				e->next = eh->buckets[hash];
 				eh->buckets[hash] = e;
-
-				e = n;
 			}
 		}
 
@@ -153,19 +157,19 @@ void *BLI_edgehash_lookup(EdgeHash *eh, unsigned int v0, unsigned int v1)
 	return value_p ? *value_p : NULL;
 }
 
-int BLI_edgehash_haskey(EdgeHash *eh, unsigned int v0, unsigned int v1)
+bool BLI_edgehash_haskey(EdgeHash *eh, unsigned int v0, unsigned int v1)
 {
 	return BLI_edgehash_lookup_p(eh, v0, v1) != NULL;
 }
 
 int BLI_edgehash_size(EdgeHash *eh)
 {
-	return eh->nentries;
+	return (int)eh->nentries;
 }
 
 void BLI_edgehash_clear(EdgeHash *eh, EdgeHashFreeFP valfreefp)
 {
-	int i;
+	unsigned int i;
 	
 	for (i = 0; i < eh->nbuckets; i++) {
 		EdgeEntry *e;
@@ -199,7 +203,7 @@ void BLI_edgehash_free(EdgeHash *eh, EdgeHashFreeFP valfreefp)
 
 struct EdgeHashIterator {
 	EdgeHash *eh;
-	int curBucket;
+	unsigned int curBucket;
 	EdgeEntry *curEntry;
 };
 
@@ -208,7 +212,7 @@ EdgeHashIterator *BLI_edgehashIterator_new(EdgeHash *eh)
 	EdgeHashIterator *ehi = MEM_mallocN(sizeof(*ehi), "eh iter");
 	ehi->eh = eh;
 	ehi->curEntry = NULL;
-	ehi->curBucket = -1;
+	ehi->curBucket = UINT_MAX;  /* wraps to zero */
 	while (!ehi->curEntry) {
 		ehi->curBucket++;
 		if (ehi->curBucket == ehi->eh->nbuckets)
@@ -255,8 +259,7 @@ void BLI_edgehashIterator_step(EdgeHashIterator *ehi)
 		}
 	}
 }
-int BLI_edgehashIterator_isDone(EdgeHashIterator *ehi)
+bool BLI_edgehashIterator_isDone(EdgeHashIterator *ehi)
 {
-	return !ehi->curEntry;
+	return (ehi->curEntry == NULL);
 }
-

@@ -28,6 +28,8 @@
  *  \ingroup edmesh
  */
 
+#include "DNA_scene_types.h"
+
 #include "BLI_math.h"
 
 #include "RNA_access.h"
@@ -57,11 +59,12 @@ void ED_operatortypes_mesh(void)
 	WM_operatortype_append(MESH_OT_hide);
 	WM_operatortype_append(MESH_OT_reveal);
 	WM_operatortype_append(MESH_OT_select_face_by_sides);
-	WM_operatortype_append(MESH_OT_select_loose_verts);
+	WM_operatortype_append(MESH_OT_select_loose);
 	WM_operatortype_append(MESH_OT_select_mirror);
 	WM_operatortype_append(MESH_OT_normals_make_consistent);
 	WM_operatortype_append(MESH_OT_merge);
 	WM_operatortype_append(MESH_OT_subdivide);
+	WM_operatortype_append(MESH_OT_subdivide_edgering);
 	WM_operatortype_append(MESH_OT_unsubdivide);
 	WM_operatortype_append(MESH_OT_faces_select_linked_flat);
 	WM_operatortype_append(MESH_OT_edges_select_sharp);
@@ -87,7 +90,7 @@ void ED_operatortypes_mesh(void)
 	WM_operatortype_append(MESH_OT_split);
 	WM_operatortype_append(MESH_OT_extrude_repeat);
 	WM_operatortype_append(MESH_OT_edge_rotate);
-	WM_operatortype_append(MESH_OT_select_vertex_path);
+	WM_operatortype_append(MESH_OT_shortest_path_select);
 	WM_operatortype_append(MESH_OT_loop_to_region);
 	WM_operatortype_append(MESH_OT_region_to_loop);
 	WM_operatortype_append(MESH_OT_select_axis);
@@ -98,11 +101,16 @@ void ED_operatortypes_mesh(void)
 	WM_operatortype_append(MESH_OT_colors_reverse);
 	
 	WM_operatortype_append(MESH_OT_fill);
+	WM_operatortype_append(MESH_OT_fill_grid);
+	WM_operatortype_append(MESH_OT_fill_holes);
 	WM_operatortype_append(MESH_OT_beautify_fill);
 	WM_operatortype_append(MESH_OT_quads_convert_to_tris);
 	WM_operatortype_append(MESH_OT_tris_convert_to_quads);
-	WM_operatortype_append(MESH_OT_dissolve);
+	WM_operatortype_append(MESH_OT_dissolve_verts);
+	WM_operatortype_append(MESH_OT_dissolve_edges);
+	WM_operatortype_append(MESH_OT_dissolve_faces);
 	WM_operatortype_append(MESH_OT_dissolve_limited);
+	WM_operatortype_append(MESH_OT_delete_edgeloop);
 	WM_operatortype_append(MESH_OT_faces_shade_smooth);
 	WM_operatortype_append(MESH_OT_faces_shade_flat);
 	WM_operatortype_append(MESH_OT_sort_elements);
@@ -112,13 +120,12 @@ void ED_operatortypes_mesh(void)
 
 	WM_operatortype_append(MESH_OT_delete);
 	WM_operatortype_append(MESH_OT_edge_collapse);
-	WM_operatortype_append(MESH_OT_edge_collapse_loop);
 
 	WM_operatortype_append(MESH_OT_separate);
 	WM_operatortype_append(MESH_OT_dupli_extrude_cursor);
 	WM_operatortype_append(MESH_OT_loop_select);
 	WM_operatortype_append(MESH_OT_edge_face_add);
-	WM_operatortype_append(MESH_OT_select_shortest_path);
+	WM_operatortype_append(MESH_OT_shortest_path_pick);
 	WM_operatortype_append(MESH_OT_select_similar);
 	WM_operatortype_append(MESH_OT_select_mode);
 	WM_operatortype_append(MESH_OT_loop_multi_select);
@@ -149,6 +156,7 @@ void ED_operatortypes_mesh(void)
 	WM_operatortype_append(MESH_OT_solidify);
 	WM_operatortype_append(MESH_OT_select_nth);
 	WM_operatortype_append(MESH_OT_vert_connect);
+	WM_operatortype_append(MESH_OT_vert_connect_nonplanar);
 	WM_operatortype_append(MESH_OT_knife_tool);
 	WM_operatortype_append(MESH_OT_knife_project);
 
@@ -167,6 +175,7 @@ void ED_operatortypes_mesh(void)
 #endif
 
 	WM_operatortype_append(MESH_OT_symmetrize);
+	WM_operatortype_append(MESH_OT_symmetry_snap);
 
 #ifdef WITH_GAMEENGINE
 	WM_operatortype_append(MESH_OT_navmesh_make);
@@ -182,7 +191,7 @@ static int ED_operator_editmesh_face_select(bContext *C)
 {
 	Object *obedit = CTX_data_edit_object(C);
 	if (obedit && obedit->type == OB_MESH) {
-		BMEditMesh *em = BMEdit_FromObject(obedit);
+		BMEditMesh *em = BKE_editmesh_from_object(obedit);
 		if (em && em->selectmode & SCE_SELECT_FACE) {
 			return 1;
 		}
@@ -293,7 +302,7 @@ void ED_keymap_mesh(wmKeyConfig *keyconf)
 	RNA_boolean_set(kmi->ptr, "deselect", false);
 	RNA_boolean_set(kmi->ptr, "toggle", true);
 
-	WM_keymap_add_item(keymap, "MESH_OT_select_shortest_path", SELECTMOUSE, KM_PRESS, KM_CTRL, 0);
+	WM_keymap_add_item(keymap, "MESH_OT_shortest_path_pick", SELECTMOUSE, KM_PRESS, KM_CTRL, 0);
 
 	kmi = WM_keymap_add_item(keymap, "MESH_OT_select_all", AKEY, KM_PRESS, 0, 0);
 	RNA_enum_set(kmi->ptr, "action", SEL_TOGGLE);

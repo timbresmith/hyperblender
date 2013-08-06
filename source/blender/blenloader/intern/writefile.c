@@ -144,12 +144,13 @@
 #include "BLI_bitmap.h"
 #include "BLI_blenlib.h"
 #include "BLI_linklist.h"
-#include "BKE_bpath.h"
 #include "BLI_math.h"
 #include "BLI_utildefines.h"
+#include "BLI_mempool.h"
 
 #include "BKE_action.h"
 #include "BKE_blender.h"
+#include "BKE_bpath.h"
 #include "BKE_curve.h"
 #include "BKE_constraint.h"
 #include "BKE_global.h" // for G
@@ -381,8 +382,8 @@ static void writedata(WriteData *wd, int filecode, int len, const void *adr)  /*
 	if (adr==NULL) return;
 	if (len==0) return;
 
-	len += 3;
-	len -= (len % 4);
+	/* align to 4 (writes uninitialized bytes in some cases) */
+	len = (len + 3) & ~3;
 
 	/* init BHead */
 	bh.code   = filecode;
@@ -392,7 +393,7 @@ static void writedata(WriteData *wd, int filecode, int len, const void *adr)  /*
 	bh.len    = len;
 
 	mywrite(wd, &bh, sizeof(BHead));
-	if (len) mywrite(wd, adr, len);
+	mywrite(wd, adr, len);
 }
 
 /* use this to force writing of lists in same order as reading (using link_list) */
@@ -860,6 +861,7 @@ static void write_userdef(WriteData *wd)
 	wmKeyMapItem *kmi;
 	wmKeyMapDiffItem *kmdi;
 	bAddon *bext;
+	bPathCompare *path_cmp;
 	uiStyle *style;
 	
 	writestruct(wd, USER, "UserDef", 1, &U);
@@ -887,6 +889,10 @@ static void write_userdef(WriteData *wd)
 		if (bext->prop) {
 			IDP_WriteProperty(bext->prop, wd);
 		}
+	}
+
+	for (path_cmp = U.autoexec_paths.first; path_cmp; path_cmp = path_cmp->next) {
+		writestruct(wd, DATA, "bPathCompare", 1, path_cmp);
 	}
 	
 	for (style= U.uistyles.first; style; style= style->next) {
@@ -1637,13 +1643,6 @@ static void write_mballs(WriteData *wd, ListBase *idbase)
 	}
 }
 
-static int amount_of_chars(char *str)
-{
-	// Since the data is saved as UTF-8 to the cu->str
-	// The cu->len is not same as the strlen(cu->str)
-	return strlen(str);
-}
-
 static void write_curves(WriteData *wd, ListBase *idbase)
 {
 	Curve *cu;
@@ -1661,8 +1660,12 @@ static void write_curves(WriteData *wd, ListBase *idbase)
 			if (cu->adt) write_animdata(wd, cu->adt);
 			
 			if (cu->vfont) {
-				writedata(wd, DATA, amount_of_chars(cu->str)+1, cu->str);
-				writestruct(wd, DATA, "CharInfo", cu->len+1, cu->strinfo);
+				/* TODO, sort out 'cu->len', in editmode its character, object mode its bytes */
+				size_t len_bytes;
+				size_t len_chars = BLI_strlen_utf8_ex(cu->str, &len_bytes);
+
+				writedata(wd, DATA, len_bytes + 1, cu->str);
+				writestruct(wd, DATA, "CharInfo", len_chars + 1, cu->strinfo);
 				writestruct(wd, DATA, "TextBox", cu->totbox, cu->tb);
 			}
 			else {
@@ -2391,6 +2394,31 @@ static void write_region(WriteData *wd, ARegion *ar, int spacetype)
 	}
 }
 
+static void write_soops(WriteData *wd, SpaceOops *so)
+{
+	BLI_mempool *ts = so->treestore;
+	
+	if (ts) {
+		int elems = BLI_mempool_count(ts);
+		/* linearize mempool to array */
+		TreeStoreElem *data = elems ? BLI_mempool_as_arrayN(ts, "TreeStoreElem") : NULL;
+		TreeStore ts_flat = {elems, elems, data};
+		
+		/* temporarily replace mempool-treestore by flat-treestore */
+		so->treestore = (BLI_mempool *)&ts_flat;
+		writestruct(wd, DATA, "SpaceOops", 1, so);
+		/* restore old treestore */
+		so->treestore = ts;
+		writestruct(wd, DATA, "TreeStore", 1, &ts_flat);
+		if (data) {
+			writestruct(wd, DATA, "TreeStoreElem", elems, data);
+			MEM_freeN(data);
+		}
+	} else {
+		writestruct(wd, DATA, "SpaceOops", 1, so);
+	}
+}
+
 static void write_screens(WriteData *wd, ListBase *scrbase)
 {
 	bScreen *sc;
@@ -2473,15 +2501,7 @@ static void write_screens(WriteData *wd, ListBase *scrbase)
 				}
 				else if (sl->spacetype==SPACE_OUTLINER) {
 					SpaceOops *so= (SpaceOops *)sl;
-					
-					writestruct(wd, DATA, "SpaceOops", 1, so);
-
-					/* outliner */
-					if (so->treestore) {
-						writestruct(wd, DATA, "TreeStore", 1, so->treestore);
-						if (so->treestore->data)
-							writestruct(wd, DATA, "TreeStoreElem", so->treestore->usedelem, so->treestore->data);
-					}
+					write_soops(wd, so);
 				}
 				else if (sl->spacetype==SPACE_IMAGE) {
 					SpaceImage *sima= (SpaceImage *)sl;
@@ -3376,7 +3396,7 @@ int BLO_write_file(Main *mainvar, const char *filepath, int write_flags, ReportL
 	BLI_snprintf(tempname, sizeof(tempname), "%s@", filepath);
 
 	file = BLI_open(tempname, O_BINARY+O_WRONLY+O_CREAT+O_TRUNC, 0666);
-	if (file == -1) {
+	if (file < 0) {
 		BKE_reportf(reports, RPT_ERROR, "Cannot open file %s for writing: %s", tempname, strerror(errno));
 		return 0;
 	}

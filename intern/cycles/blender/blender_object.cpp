@@ -154,10 +154,22 @@ void BlenderSync::sync_light(BL::Object b_parent, int persistent_id[OBJECT_PERSI
 	light->shader = used_shaders[0];
 
 	/* shadow */
+	PointerRNA cscene = RNA_pointer_get(&b_scene.ptr, "cycles");
 	PointerRNA clamp = RNA_pointer_get(&b_lamp.ptr, "cycles");
 	light->cast_shadow = get_boolean(clamp, "cast_shadow");
 	light->use_mis = get_boolean(clamp, "use_multiple_importance_sampling");
-	light->samples = get_int(clamp, "samples");
+	
+	int samples = get_int(clamp, "samples");
+	if(get_boolean(cscene, "squared_samples"))
+		light->samples = samples * samples;
+	else
+		light->samples = samples;
+
+	/* visibility */
+	uint visibility = object_ray_visibility(b_ob);
+	light->use_diffuse = (visibility & PATH_RAY_DIFFUSE) != 0;
+	light->use_glossy = (visibility & PATH_RAY_GLOSSY) != 0;
+	light->use_transmission = (visibility & PATH_RAY_TRANSMIT) != 0;
 
 	/* tag */
 	light->tag_update(scene);
@@ -168,6 +180,7 @@ void BlenderSync::sync_background_light()
 	BL::World b_world = b_scene.world();
 
 	if(b_world) {
+		PointerRNA cscene = RNA_pointer_get(&b_scene.ptr, "cycles");
 		PointerRNA cworld = RNA_pointer_get(&b_world.ptr, "cycles");
 		bool sample_as_light = get_boolean(cworld, "sample_as_light");
 
@@ -182,8 +195,13 @@ void BlenderSync::sync_background_light()
 			{
 				light->type = LIGHT_BACKGROUND;
 				light->map_resolution  = get_int(cworld, "sample_map_resolution");
-				light->samples  = get_int(cworld, "samples");
 				light->shader = scene->default_background;
+				
+				int samples = get_int(cworld, "samples");
+				if(get_boolean(cscene, "squared_samples"))
+					light->samples = samples * samples;
+				else
+					light->samples = samples;
 
 				light->tag_update(scene);
 				light_map.set_recalc(b_world);
@@ -203,7 +221,8 @@ Object *BlenderSync::sync_object(BL::Object b_parent, int persistent_id[OBJECT_P
 	
 	/* light is handled separately */
 	if(object_is_light(b_ob)) {
-		if(!motion)
+		/* don't use lamps for excluded layers used as mask layer */
+		if(!motion && !((layer_flag & render_layer.holdout_layer) && (layer_flag & render_layer.exclude_layer)))
 			sync_light(b_parent, persistent_id, b_ob, tfm);
 
 		return NULL;
@@ -297,7 +316,7 @@ Object *BlenderSync::sync_object(BL::Object b_parent, int persistent_id[OBJECT_P
 		}
 
 		if (b_dupli_ob) {
-			object->dupli_generated = get_float3(b_dupli_ob.orco());
+			object->dupli_generated = 0.5f*get_float3(b_dupli_ob.orco()) - make_float3(0.5f, 0.5f, 0.5f);
 			object->dupli_uv = get_float2(b_dupli_ob.uv());
 		}
 		else {
@@ -311,8 +330,12 @@ Object *BlenderSync::sync_object(BL::Object b_parent, int persistent_id[OBJECT_P
 	return object;
 }
 
-static bool object_render_hide_original(BL::Object::dupli_type_enum dupli_type)
+static bool object_render_hide_original(BL::Object::type_enum ob_type, BL::Object::dupli_type_enum dupli_type)
 {
+	/* metaball exception, they duplicate self */
+	if(ob_type == BL::Object::type_META)
+		return false;
+
 	return (dupli_type == BL::Object::dupli_type_VERTS ||
 	        dupli_type == BL::Object::dupli_type_FACES ||
 	        dupli_type == BL::Object::dupli_type_FRAMES);
@@ -345,12 +368,19 @@ static bool object_render_hide(BL::Object b_ob, bool top_level, bool parent_hide
 
 	/* hide original object for duplis */
 	BL::Object parent = b_ob.parent();
-	if(parent && object_render_hide_original(parent.dupli_type()))
+	if(parent && object_render_hide_original(b_ob.type(), parent.dupli_type()))
 		if(parent_hide)
 			hide = true;
 
 	hide_triangles = (hair_present && !show_emitter);
 	return hide && !show_emitter;
+}
+
+static bool object_render_hide_duplis(BL::Object b_ob)
+{
+	BL::Object parent = b_ob.parent();
+
+	return (parent && object_render_hide_original(b_ob.type(), parent.dupli_type()));
 }
 
 /* Object Loop */
@@ -387,7 +417,7 @@ void BlenderSync::sync_objects(BL::SpaceView3D b_v3d, int motion)
 			if(!hide) {
 				progress.set_sync_status("Synchronizing object", (*b_ob).name());
 
-				if(b_ob->is_duplicator()) {
+				if(b_ob->is_duplicator() && !object_render_hide_duplis(*b_ob)) {
 					/* dupli objects */
 					b_ob->dupli_list_create(b_scene, 2);
 

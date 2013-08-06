@@ -46,10 +46,6 @@ struct bSound;
 
 struct SeqIndexBuildContext;
 
-#define BUILD_SEQAR_COUNT_NOTHING  0
-#define BUILD_SEQAR_COUNT_CURRENT  1
-#define BUILD_SEQAR_COUNT_CHILDREN 2
-
 #define EARLY_NO_INPUT      -1
 #define EARLY_DO_EFFECT     0
 #define EARLY_USE_INPUT_1   1
@@ -212,6 +208,10 @@ int BKE_sequencer_recursive_apply(struct Sequence *seq, int (*apply_func)(struct
 
 void BKE_sequencer_free_clipboard(void);
 
+void BKE_sequence_clipboard_pointers_free(struct Sequence *seq);
+void BKE_sequence_clipboard_pointers_store(struct Sequence *seq);
+void BKE_sequence_clipboard_pointers_restore(struct Sequence *seq, struct Main *bmain);
+
 void BKE_sequence_free(struct Scene *scene, struct Sequence *seq);
 const char *BKE_sequence_give_name(struct Sequence *seq);
 void BKE_sequence_calc(struct Scene *scene, struct Sequence *seq);
@@ -265,7 +265,7 @@ void BKE_sequencer_preprocessed_cache_cleanup_sequence(struct Sequence *seq);
 /* **********************************************************************
  * seqeffects.c
  *
- * Sequencer effect strip managment functions
+ * Sequencer effect strip management functions
  *  **********************************************************************
  */
 
@@ -323,8 +323,6 @@ void BKE_sequence_base_dupli_recursive(struct Scene *scene, struct Scene *scene_
 bool BKE_sequence_is_valid_check(struct Sequence *seq);
 
 void BKE_sequencer_clear_scene_in_allseqs(struct Main *bmain, struct Scene *sce);
-void BKE_sequencer_clear_movieclip_in_clipboard(struct MovieClip *clip);
-void BKE_sequencer_clear_mask_in_clipboard(struct Mask *mask);
 
 struct Sequence *BKE_sequence_get_by_name(struct ListBase *seqbase, const char *name, int recursive);
 
@@ -338,7 +336,7 @@ typedef struct SeqLoadInfo {
 	int tot_success;
 	int tot_error;
 	int len;        /* only for image strips */
-	char path[512];
+	char path[1024]; /* 1024 = FILE_MAX */
 	char name[64];
 } SeqLoadInfo;
 
@@ -409,7 +407,7 @@ int BKE_sequence_modifier_remove(struct Sequence *seq, struct SequenceModifierDa
 void BKE_sequence_modifier_clear(struct Sequence *seq);
 void BKE_sequence_modifier_free(struct SequenceModifierData *smd);
 void BKE_sequence_modifier_unique_name(struct Sequence *seq, struct SequenceModifierData *smd);
-struct SequenceModifierData *BKE_sequence_modifier_find_by_name(struct Sequence *seq, char *name);
+struct SequenceModifierData *BKE_sequence_modifier_find_by_name(struct Sequence *seq, const char *name);
 struct ImBuf *BKE_sequence_modifier_apply_stack(SeqRenderData context, struct Sequence *seq, struct ImBuf *ibuf, int cfra);
 void BKE_sequence_modifier_list_copy(struct Sequence *seqn, struct Sequence *seq);
 

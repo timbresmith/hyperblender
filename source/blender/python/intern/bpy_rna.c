@@ -189,7 +189,7 @@ static GHash *id_weakref_pool_get(ID *id)
 }
 
 /* called from pyrna_struct_CreatePyObject() and pyrna_prop_CreatePyObject() */
-void id_weakref_pool_add(ID *id, BPy_DummyPointerRNA *pyrna)
+static void id_weakref_pool_add(ID *id, BPy_DummyPointerRNA *pyrna)
 {
 	PyObject *weakref;
 	PyObject *weakref_capsule;
@@ -250,7 +250,7 @@ static void id_release_weakref_list(struct ID *id, GHash *weakinfo_hash)
 	fprintf(stdout, "id_release_weakref: '%s', %d items\n", id->name, BLI_ghash_size(weakinfo_hash));
 #endif
 
-	while (BLI_ghashIterator_notDone(&weakinfo_hash_iter)) {
+	while (!BLI_ghashIterator_done(&weakinfo_hash_iter)) {
 		PyObject *weakref = (PyObject *)BLI_ghashIterator_getKey(&weakinfo_hash_iter);
 		PyObject *item = PyWeakref_GET_OBJECT(weakref);
 		if (item != Py_None) {
@@ -704,6 +704,7 @@ PyObject *pyrna_math_object_from_array(PointerRNA *ptr, PropertyRNA *prop)
 						ret = col_cb; /* return the color instead */
 					}
 				}
+				break;
 			default:
 				break;
 		}
@@ -776,7 +777,8 @@ static PyObject *pyrna_struct_richcmp(PyObject *a, PyObject *b, int op)
 
 	switch (op) {
 		case Py_NE:
-			ok = !ok; /* pass through */
+			ok = !ok;
+			/* fall-through */
 		case Py_EQ:
 			res = ok ? Py_False : Py_True;
 			break;
@@ -805,7 +807,8 @@ static PyObject *pyrna_prop_richcmp(PyObject *a, PyObject *b, int op)
 
 	switch (op) {
 		case Py_NE:
-			ok = !ok; /* pass through */
+			ok = !ok;
+			/* fall-through */
 		case Py_EQ:
 			res = ok ? Py_False : Py_True;
 			break;
@@ -2270,7 +2273,7 @@ static PyObject *pyrna_prop_collection_subscript_str_lib_pair(BPy_PropertyRNA *s
 static PyObject *pyrna_prop_collection_subscript_slice(BPy_PropertyRNA *self, Py_ssize_t start, Py_ssize_t stop)
 {
 	CollectionPropertyIterator rna_macro_iter;
-	int count = 0;
+	int count;
 
 	PyObject *list;
 	PyObject *item;
@@ -2279,20 +2282,12 @@ static PyObject *pyrna_prop_collection_subscript_slice(BPy_PropertyRNA *self, Py
 
 	list = PyList_New(0);
 
-	/* first loop up-until the start */
-	for (RNA_property_collection_begin(&self->ptr, self->prop, &rna_macro_iter);
-	     rna_macro_iter.valid;
-	     RNA_property_collection_next(&rna_macro_iter))
-	{
-		/* PointerRNA itemptr = rna_macro_iter.ptr; */
-		if (count == start) {
-			break;
-		}
-		count++;
-	}
+	/* skip to start */
+	RNA_property_collection_begin(&self->ptr, self->prop, &rna_macro_iter);
+	RNA_property_collection_skip(&rna_macro_iter, start);
 
 	/* add items until stop */
-	for (; rna_macro_iter.valid;
+	for (count = start; rna_macro_iter.valid;
 	     RNA_property_collection_next(&rna_macro_iter))
 	{
 		item = pyrna_struct_CreatePyObject(&rna_macro_iter.ptr);
@@ -2388,6 +2383,7 @@ static PyObject *pyrna_prop_array_subscript_slice(BPy_PropertyArrayRNA *self, Po
 				PyErr_SetString(PyExc_TypeError, "not an array type");
 				Py_DECREF(tuple);
 				tuple = NULL;
+				break;
 		}
 	}
 	return tuple;
@@ -2727,6 +2723,7 @@ static int prop_subscript_ass_array_slice(PointerRNA *ptr, PropertyRNA *prop,
 		default:
 			PyErr_SetString(PyExc_TypeError, "not an array type");
 			ret = -1;
+			break;
 	}
 
 	Py_DECREF(value);
@@ -3433,11 +3430,14 @@ static void pyrna_dir_members_rna(PyObject *list, PointerRNA *ptr)
 
 		RNA_PROP_BEGIN (&tptr, itemptr, iterprop)
 		{
-			idname = RNA_function_identifier(itemptr.data);
+			FunctionRNA *func = itemptr.data;
+			if (RNA_function_defined(func)) {
+				idname = RNA_function_identifier(itemptr.data);
 
-			pystring = PyUnicode_FromString(idname);
-			PyList_Append(list, pystring);
-			Py_DECREF(pystring);
+				pystring = PyUnicode_FromString(idname);
+				PyList_Append(list, pystring);
+				Py_DECREF(pystring);
+			}
 		}
 		RNA_PROP_END;
 	}
@@ -3593,6 +3593,7 @@ static PyObject *pyrna_struct_getattro(BPy_StructRNA *self, PyObject *pyname)
 						             "bpy_struct: Context type invalid %d, can't get \"%.200s\" from context",
 						             newtype, name);
 						ret = NULL;
+						break;
 				}
 			}
 			else if (done == -1) { /* found but not set */
@@ -4868,13 +4869,13 @@ static PyObject *pyrna_param_to_py(PointerRNA *ptr, PropertyRNA *prop, void *dat
 							ret = Matrix_CreatePyObject(data, 3, 3, Py_NEW, NULL);
 							break;
 						}
-						/* pass through */
+						/* fall-through */
 #endif
 					default:
 						ret = PyTuple_New(len);
 						for (a = 0; a < len; a++)
 							PyTuple_SET_ITEM(ret, a, PyFloat_FromDouble(((float *)data)[a]));
-
+						break;
 				}
 				break;
 			default:
@@ -5326,7 +5327,7 @@ static PyObject *pyrna_func_doc_get(BPy_FunctionRNA *self, void *UNUSED(closure)
 	PyObject *ret;
 	char *args;
 
-	args = RNA_function_as_string_keywords(NULL, self->func, NULL, true, true);
+	args = RNA_function_as_string_keywords(NULL, self->func, NULL, true, true, INT_MAX);
 
 	ret = PyUnicode_FromFormat("%.200s.%.200s(%.200s)\n%s",
 	                           RNA_struct_identifier(self->ptr.type),
@@ -7006,21 +7007,23 @@ static int bpy_class_validate_recursive(PointerRNA *dummyptr, StructRNA *srna, v
 			/* Sneaky workaround to use the class name as the bl_idname */
 
 #define     BPY_REPLACEMENT_STRING(rna_attr, py_attr)                         \
-	(STREQ(identifier, rna_attr)) {                                           \
-		item = PyObject_GetAttr(py_class, py_attr);                           \
-		if (item && item != Py_None) {                                        \
-			if (pyrna_py_to_prop(dummyptr, prop, NULL,                        \
-			                     item, "validating class:") != 0)             \
-			{                                                                 \
-				Py_DECREF(item);                                              \
-				return -1;                                                    \
-			}                                                                 \
-		}                                                                     \
-		Py_XDECREF(item);                                                     \
-	}  /* intentionally allow else here */
+			else if (STREQ(identifier, rna_attr)) {                           \
+				if ((item = PyObject_GetAttr(py_class, py_attr))) {           \
+					if (item != Py_None) {                                    \
+						if (pyrna_py_to_prop(dummyptr, prop, NULL,            \
+						                     item, "validating class:") != 0) \
+						{                                                     \
+							Py_DECREF(item);                                  \
+							return -1;                                        \
+						}                                                     \
+					}                                                         \
+					Py_DECREF(item);                                          \
+				}                                                             \
+			}  /* intentionally allow else here */
 
-			if      BPY_REPLACEMENT_STRING("bl_idname",      bpy_intern_str___name__)
-			else if BPY_REPLACEMENT_STRING("bl_description", bpy_intern_str___doc__)
+			if (false) {}  /* needed for macro */
+			BPY_REPLACEMENT_STRING("bl_idname",      bpy_intern_str___name__)
+			BPY_REPLACEMENT_STRING("bl_description", bpy_intern_str___doc__)
 
 #undef      BPY_REPLACEMENT_STRING
 

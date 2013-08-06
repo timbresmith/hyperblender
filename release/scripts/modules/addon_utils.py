@@ -219,8 +219,27 @@ def check(module_name):
 
     return loaded_default, loaded_state
 
+# utility functions
 
-def enable(module_name, default_set=True, persistent=False):
+
+def _addon_ensure(module_name):
+    addons = _user_preferences.addons
+    addon = _user_preferences.addons.get(module_name)
+    if not addon:
+        addon = _user_preferences.addons.new()
+        addon.module = module_name
+
+
+def _addon_remove(module_name):
+    addons = _user_preferences.addons
+
+    while module_name in addons:
+        addon = addons.get(module_name)
+        if addon:
+            addons.remove(addon)
+
+
+def enable(module_name, default_set=True, persistent=False, handle_error=None):
     """
     Enables an addon by name.
 
@@ -234,9 +253,10 @@ def enable(module_name, default_set=True, persistent=False):
     import sys
     from bpy_restrict_state import RestrictBlend
 
-    def handle_error():
-        import traceback
-        traceback.print_exc()
+    if handle_error is None:
+        def handle_error():
+            import traceback
+            traceback.print_exc()
 
     # reload if the mtime changes
     mod = sys.modules.get(module_name)
@@ -257,6 +277,11 @@ def enable(module_name, default_set=True, persistent=False):
                 return None
             mod.__addon_enabled__ = False
 
+    # add the addon first it may want to initialize its own preferences.
+    # must remove on fail through.
+    if default_set:
+        _addon_ensure(module_name)
+
     # Split registering up into 3 steps so we can undo
     # if it fails par way through.
 
@@ -271,6 +296,7 @@ def enable(module_name, default_set=True, persistent=False):
             mod.__addon_enabled__ = False
         except:
             handle_error()
+            _addon_remove(module_name)
             return None
 
         # 2) try register collected modules
@@ -284,16 +310,10 @@ def enable(module_name, default_set=True, persistent=False):
                   getattr(mod, "__file__", module_name))
             handle_error()
             del sys.modules[module_name]
+            _addon_remove(module_name)
             return None
 
     # * OK loaded successfully! *
-    if default_set:
-        # just in case its enabled already
-        ext = _user_preferences.addons.get(module_name)
-        if not ext:
-            ext = _user_preferences.addons.new()
-            ext.module = module_name
-
     mod.__addon_enabled__ = True
     mod.__addon_persistent__ = persistent
 
@@ -303,7 +323,7 @@ def enable(module_name, default_set=True, persistent=False):
     return mod
 
 
-def disable(module_name, default_set=True):
+def disable(module_name, default_set=True, handle_error=None):
     """
     Disables an addon by name.
 
@@ -311,6 +331,12 @@ def disable(module_name, default_set=True):
     :type module_name: string
     """
     import sys
+
+    if handle_error is None:
+        def handle_error():
+            import traceback
+            traceback.print_exc()
+
     mod = sys.modules.get(module_name)
 
     # possible this addon is from a previous session and didn't load a
@@ -325,20 +351,14 @@ def disable(module_name, default_set=True):
         except:
             print("Exception in module unregister(): %r" %
                   getattr(mod, "__file__", module_name))
-            import traceback
-            traceback.print_exc()
+            handle_error()
     else:
         print("addon_utils.disable: %s not %s." %
               (module_name, "disabled" if mod is None else "loaded"))
 
     # could be in more than once, unlikely but better do this just in case.
-    addons = _user_preferences.addons
-
     if default_set:
-        while module_name in addons:
-            addon = addons.get(module_name)
-            if addon:
-                addons.remove(addon)
+        _addon_remove(module_name)
 
     if _bpy.app.debug_python:
         print("\taddon_utils.disable", module_name)
@@ -349,7 +369,6 @@ def reset_all(reload_scripts=False):
     Sets the addon state based on the user preferences.
     """
     import sys
-    import imp
 
     # RELEASE SCRIPTS: official scripts distributed in Blender releases
     paths_list = paths()
@@ -361,6 +380,7 @@ def reset_all(reload_scripts=False):
 
             # first check if reload is needed before changing state.
             if reload_scripts:
+                import imp
                 mod = sys.modules.get(mod_name)
                 if mod:
                     imp.reload(mod)

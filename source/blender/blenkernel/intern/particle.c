@@ -716,8 +716,8 @@ void psys_render_set(Object *ob, ParticleSystem *psys, float viewmat[4][4], floa
 	psys->childcachebufs.first = psys->childcachebufs.last = NULL;
 
 	copy_m4_m4(data->winmat, winmat);
-	mult_m4_m4m4(data->viewmat, viewmat, ob->obmat);
-	mult_m4_m4m4(data->mat, winmat, data->viewmat);
+	mul_m4_m4m4(data->viewmat, viewmat, ob->obmat);
+	mul_m4_m4m4(data->mat, winmat, data->viewmat);
 	data->winx = winx;
 	data->winy = winy;
 
@@ -734,6 +734,8 @@ void psys_render_restore(Object *ob, ParticleSystem *psys)
 {
 	ParticleRenderData *data;
 	ParticleSystemModifierData *psmd = psys_get_modifier(ob, psys);
+	float render_disp = psys_get_current_display_percentage(psys);
+	float disp;
 
 	data = psys->renderdata;
 	if (!data)
@@ -777,6 +779,20 @@ void psys_render_restore(Object *ob, ParticleSystem *psys)
 
 	MEM_freeN(data);
 	psys->renderdata = NULL;
+
+	/* restore particle display percentage */
+	disp = psys_get_current_display_percentage(psys);
+
+	if (disp != render_disp) {
+		PARTICLE_P;
+
+		LOOP_PARTICLES {
+			if (PSYS_FRAND(p) > disp)
+				pa->flag |= PARS_NO_DISP;
+			else
+				pa->flag &= ~PARS_NO_DISP;
+		}
+	}
 }
 
 /* BMESH_TODO, for orig face data, we need to use MPoly */
@@ -3398,8 +3414,7 @@ static void psys_face_mat(Object *ob, DerivedMesh *dm, ParticleData *pa, float m
 	OrigSpaceFace *osface;
 	float (*orcodata)[3];
 
-	int i = pa->num_dmcache == DMCACHE_NOTFOUND ? pa->num : pa->num_dmcache;
-	
+	int i = (ELEM(pa->num_dmcache, DMCACHE_ISCHILD, DMCACHE_NOTFOUND)) ? pa->num : pa->num_dmcache;
 	if (i == -1 || i >= dm->getNumTessFaces(dm)) { unit_m4(mat); return; }
 
 	mface = dm->getTessFaceData(dm, i, CD_MFACE);
@@ -3467,7 +3482,7 @@ void psys_mat_hair_to_global(Object *ob, DerivedMesh *dm, short from, ParticleDa
 
 	psys_mat_hair_to_object(ob, dm, from, pa, facemat);
 
-	mult_m4_m4m4(hairmat, ob->obmat, facemat);
+	mul_m4_m4m4(hairmat, ob->obmat, facemat);
 }
 
 /************************************************/
@@ -3636,6 +3651,8 @@ static void default_particle_settings(ParticleSettings *part)
 
 	if (!part->effector_weights)
 		part->effector_weights = BKE_add_effector_weights(NULL);
+
+	part->use_modifier_stack = false;
 }
 
 
@@ -4493,7 +4510,7 @@ void psys_get_dupli_texture(ParticleSystem *psys, ParticleSettings *part,
 			num = DMCACHE_NOTFOUND;
 		}
 
-		if (mtface && num != DMCACHE_NOTFOUND) {
+		if (mtface && !ELEM(num, DMCACHE_NOTFOUND, DMCACHE_ISCHILD)) {
 			mface = psmd->dm->getTessFaceData(psmd->dm, num, CD_MFACE);
 			mtface += num;
 			psys_interpolate_uvs(mtface, mface->v4, pa->fuv, uv);

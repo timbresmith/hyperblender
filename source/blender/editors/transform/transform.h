@@ -40,7 +40,7 @@
 #include "DNA_listBase.h"
 
 #include "BLI_smallhash.h"
-#include "BKE_tessmesh.h"
+#include "BKE_editmesh.h"
 
 /* ************************** Types ***************************** */
 
@@ -185,16 +185,14 @@ struct LinkNode;
 struct GHash;
 
 typedef struct TransDataEdgeSlideVert {
-	struct BMVert vup, vdown;
-	struct BMVert origvert;
-
-	struct BMVert *up, *down;
+	struct BMVert *v_a, *v_b;
 	struct BMVert *v;
+	float v_co_orig[3];
 
 	float edge_len;
 
 	/* add origvert.co to get the original locations */
-	float upvec[3], downvec[3];
+	float dir_a[3], dir_b[3];
 
 	int loop_nr;
 } TransDataEdgeSlideVert;
@@ -203,14 +201,14 @@ typedef struct EdgeSlideData {
 	TransDataEdgeSlideVert *sv;
 	int totsv;
 	
-	struct SmallHash vhash;
-	struct SmallHash origfaces;
+	struct GHash *origfaces;
 
-	int start[2], end[2];
+	int mval_start[2], mval_end[2];
 	struct BMEditMesh *em;
 
 	/* flag that is set when origfaces is initialized */
-	bool origfaces_init;
+	bool use_origfaces;
+	struct BMesh *bm_origfaces;
 
 	float perc;
 
@@ -321,7 +319,6 @@ typedef struct TransInfo {
 	float		vec[3];			/* translation, to show for widget   	*/
 	float		mat[3][3];		/* rot/rescale, to show for widget   	*/
 
-	char		*undostr;		/* if set, uses this string for undo		*/
 	float		spacemtx[3][3];	/* orientation matrix of the current space	*/
 	char		spacename[64];	/* name of the current space, MAX_NAME		*/
 
@@ -397,6 +394,8 @@ typedef struct TransInfo {
 
 #define T_PROP_EDIT			(1 << 11)
 #define T_PROP_CONNECTED	(1 << 12)
+#define T_PROP_PROJECTED	(1 << 25)
+#define T_PROP_EDIT_ALL		(T_PROP_EDIT | T_PROP_CONNECTED | T_PROP_PROJECTED)
 
 #define T_V3D_ALIGN			(1 << 14)
 	/* for 2d views like uv or ipo */
@@ -533,10 +532,6 @@ int Trackball(TransInfo *t, const int mval[2]);
 void initPushPull(TransInfo *t);
 int PushPull(TransInfo *t, const int mval[2]);
 
-void initBevel(TransInfo *t);
-int handleEventBevel(TransInfo *t, const struct wmEvent *event);
-int Bevel(TransInfo *t, const int mval[2]);
-
 void initBevelWeight(TransInfo *t);
 int BevelWeight(TransInfo *t, const int mval[2]);
 
@@ -609,6 +604,7 @@ int calc_manipulator_stats(const struct bContext *C);
 void createTransData(struct bContext *C, TransInfo *t);
 void sort_trans_data_dist(TransInfo *t);
 void special_aftertrans_update(struct bContext *C, TransInfo *t);
+int  special_transform_moving(TransInfo *t);
 
 void transform_autoik_update(TransInfo *t, short mode);
 
@@ -624,6 +620,7 @@ void drawConstraint(TransInfo *t);
 
 void getConstraintMatrix(TransInfo *t);
 void setConstraint(TransInfo *t, float space[3][3], int mode, const char text[]);
+void setAxisMatrixConstraint(TransInfo *t, int mode, const char text[]);
 void setLocalConstraint(TransInfo *t, int mode, const char text[]);
 void setUserConstraint(TransInfo *t, short orientation, int mode, const char text[]);
 
@@ -698,7 +695,8 @@ void setInputPostFct(MouseInput *mi, void	(*post)(struct TransInfo *t, float val
 /*********************** Generics ********************************/
 
 int initTransInfo(struct bContext *C, TransInfo *t, struct wmOperator *op, const struct wmEvent *event);
-void postTrans (struct bContext *C, TransInfo *t);
+void postTrans(struct bContext *C, TransInfo *t);
+void resetTransModal(TransInfo *t);
 void resetTransRestrictions(TransInfo *t);
 
 void drawLine(TransInfo *t, const float center[3], const float dir[3], char axis, short options);
@@ -725,13 +723,9 @@ void getViewVector(TransInfo *t, float coord[3], float vec[3]);
 
 void initTransformOrientation(struct bContext *C, TransInfo *t);
 
-struct TransformOrientation *createObjectSpace(struct bContext *C, struct ReportList *reports, char *name, int overwrite);
-struct TransformOrientation *createMeshSpace(struct bContext *C, struct ReportList *reports, char *name, int overwrite);
-struct TransformOrientation *createBoneSpace(struct bContext *C, struct ReportList *reports, char *name, int overwrite);
-
 /* Those two fill in mat and return non-zero on success */
 bool createSpaceNormal(float mat[3][3], const float normal[3]);
-bool createSpaceNormalTangent(float mat[3][3], float normal[3], float tangent[3]);
+bool createSpaceNormalTangent(float mat[3][3], const float normal[3], const float tangent[3]);
 
 struct TransformOrientation *addMatrixSpace(struct bContext *C, float mat[3][3], char name[], int overwrite);
 void applyTransformOrientation(const struct bContext *C, float mat[3][3], char *name);
@@ -753,5 +747,6 @@ void freeVertSlideVerts(TransInfo *t);
 
 /* TODO. transform_queries.c */
 bool checkUseLocalCenter_GraphEdit(TransInfo *t);
+bool checkUseAxisMatrix(TransInfo *t);
 
 #endif

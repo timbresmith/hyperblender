@@ -73,31 +73,35 @@ ParticleCurveData::~ParticleCurveData()
 void interp_weights(float t, float data[4], int type)
 {
 	float t2, t3, fc;
+	
+	switch (type) {
+		case CURVE_LINEAR:
+			data[0] =          0.0f;
+			data[1] = -t     + 1.0f;
+			data[2] =  t;
+			data[3] =          0.0f;
+			break;
+		case CURVE_CARDINAL:
+			t2 = t * t;
+			t3 = t2 * t;
+			fc = 0.71f;
 
-	if(type == CURVE_LINEAR) {
-		data[0] =          0.0f;
-		data[1] = -t     + 1.0f;
-		data[2] =  t;
-		data[3] =          0.0f;
-	}
-	else if(type == CURVE_CARDINAL) {
-		t2 = t * t;
-		t3 = t2 * t;
-		fc = 0.71f;
+			data[0] = -fc          * t3  + 2.0f * fc          * t2 - fc * t;
+			data[1] =  (2.0f - fc) * t3  + (fc - 3.0f)        * t2 + 1.0f;
+			data[2] =  (fc - 2.0f) * t3  + (3.0f - 2.0f * fc) * t2 + fc * t;
+			data[3] =  fc          * t3  - fc * t2;
+			break;
+		case CURVE_BSPLINE:
+			t2 = t * t;
+			t3 = t2 * t;
 
-		data[0] = -fc          * t3  + 2.0f * fc          * t2 - fc * t;
-		data[1] =  (2.0f - fc) * t3  + (fc - 3.0f)        * t2 + 1.0f;
-		data[2] =  (fc - 2.0f) * t3  + (3.0f - 2.0f * fc) * t2 + fc * t;
-		data[3] =  fc          * t3  - fc * t2;
-	}
-	else if(type == CURVE_BSPLINE) {
-		t2 = t * t;
-		t3 = t2 * t;
-
-		data[0] = -0.16666666f * t3  + 0.5f * t2   - 0.5f * t    + 0.16666666f;
-		data[1] =  0.5f        * t3  - t2                        + 0.66666666f;
-		data[2] = -0.5f        * t3  + 0.5f * t2   + 0.5f * t    + 0.16666666f;
-		data[3] =  0.16666666f * t3;
+			data[0] = -0.16666666f * t3  + 0.5f * t2   - 0.5f * t    + 0.16666666f;
+			data[1] =  0.5f        * t3  - t2                        + 0.66666666f;
+			data[2] = -0.5f        * t3  + 0.5f * t2   + 0.5f * t    + 0.16666666f;
+			data[3] =  0.16666666f * t3;
+			break;
+		default:
+			break;
 	}
 }
 
@@ -111,11 +115,12 @@ void curveinterp_v3_v3v3v3v3(float3 *p, float3 *v1, float3 *v2, float3 *v3, floa
 float shaperadius(float shape, float root, float tip, float time)
 {
 	float radius = 1.0f - time;
+	
 	if(shape != 0.0f) {
 		if(shape < 0.0f)
-			radius = (float)pow(1.0f - time, 1.f + shape);
+			radius = powf(radius, 1.0f + shape);
 		else
-			radius = (float)pow(1.0f - time, 1.f / (1.f - shape));
+			radius = powf(radius, 1.0f / (1.0f - shape));
 	}
 	return (radius * (root - tip)) + tip;
 }
@@ -178,7 +183,7 @@ bool ObtainCacheParticleData(Mesh *mesh, BL::Mesh *b_mesh, BL::Object *b_ob, Par
 				int mi = clamp(b_psys.settings().material()-1, 0, mesh->used_shaders.size()-1);
 				int shader = mesh->used_shaders[mi];
 				int draw_step = background ? b_psys.settings().render_step() : b_psys.settings().draw_step();
-				int ren_step = (int)pow((float)2.0f,(float)draw_step);
+				int ren_step = (int)powf(2.0f, (float)draw_step);
 				int totparts = b_psys.particles.length();
 				int totchild = background ? b_psys.child_particles.length() : (int)((float)b_psys.child_particles.length() * (float)b_psys.settings().draw_percentage() / 100.0f);
 				int totcurves = totchild;
@@ -195,7 +200,7 @@ bool ObtainCacheParticleData(Mesh *mesh, BL::Mesh *b_mesh, BL::Object *b_ob, Par
 				CData->psys_curvenum.push_back(totcurves);
 				CData->psys_shader.push_back(shader);
 
-				float radius = b_psys.settings().particle_size() * 0.5f;
+				float radius = get_float(cpsys, "radius_scale") * 0.5f;
 	
 				CData->psys_rootradius.push_back(radius * get_float(cpsys, "root_width"));
 				CData->psys_tipradius.push_back(radius * get_float(cpsys, "tip_width"));
@@ -665,7 +670,7 @@ void ExportCurveTriangleGeometry(Mesh *mesh, ParticleCurveData *CData, int inter
 					if(CData->psys_closetip[sys] && (subv == segments) && (curvekey == CData->curve_firstkey[curve] + CData->curve_keynum[curve] - 2))
 						radius = shaperadius(CData->psys_shape[sys], CData->psys_rootradius[sys], 0.0f, 0.95f);
 
-					float angle = 2 * M_PI_F / (float)resolution;
+					float angle = M_2PI_F / (float)resolution;
 					for(int section = 0 ; section < resolution; section++) {
 						float3 ickey_loc_shf = ickey_loc + radius * (cosf(angle * section) * xbasis + sinf(angle * section) * ybasis);
 						mesh->verts.push_back(ickey_loc_shf);
@@ -884,6 +889,8 @@ void BlenderSync::sync_curve_settings()
 	CurveSystemManager prev_curve_system_manager = *curve_system_manager;
 
 	curve_system_manager->use_curves = get_boolean(csscene, "use_curves");
+	curve_system_manager->minimum_width = get_float(csscene, "minimum_width");
+	curve_system_manager->maximum_width = get_float(csscene, "maximum_width");
 
 	if(preset == CURVE_CUSTOM) {
 		/*custom properties*/
@@ -955,6 +962,12 @@ void BlenderSync::sync_curve_settings()
 				/*Cardinal curves preset*/
 				curve_system_manager->primitive = CURVE_SEGMENTS;
 				curve_system_manager->use_backfacing = true;
+				curve_system_manager->subdivisions = 4;
+				break;
+			case CURVE_SMOOTH_RIBBONS:
+				/*Cardinal ribbons preset*/
+				curve_system_manager->primitive = CURVE_RIBBONS;
+				curve_system_manager->use_backfacing = false;
 				curve_system_manager->subdivisions = 4;
 				break;
 		}

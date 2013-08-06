@@ -150,8 +150,11 @@ static void id_search_cb(const bContext *C, void *arg_template, const char *str,
 				if ((id->name[2] == '.') && (str[0] != '.'))
 					continue;
 
-			if (BLI_strcasestr(id->name + 2, str)) {
-				char name_ui[MAX_ID_NAME];
+			if (*str == '\0' || BLI_strcasestr(id->name + 2, str)) {
+				/* +1 is needed because name_uiprefix_id used 3 letter prefix
+				 * followed by ID_NAME-2 characters from id->name
+				 */
+				char name_ui[MAX_ID_NAME + 1];
 				name_uiprefix_id(name_ui, id);
 
 				iconid = ui_id_icon_get((bContext *)C, id, template->preview);
@@ -304,8 +307,9 @@ static void template_id_cb(bContext *C, void *arg_litem, void *arg_event)
 
 				/* make copy */
 				if (do_scene_obj) {
+					Main *bmain = CTX_data_main(C);
 					Scene *scene = CTX_data_scene(C);
-					ED_object_single_user(scene, (struct Object *)id);
+					ED_object_single_user(bmain, scene, (struct Object *)id);
 					WM_event_add_notifier(C, NC_SCENE | ND_OB_ACTIVE, scene);
 				}
 				else {
@@ -576,6 +580,7 @@ static void template_ID(bContext *C, uiLayout *layout, TemplateID *template, Str
 	}
 	
 	/* delete button */
+	/* don't use RNA_property_is_unlink here */
 	if (id && (flag & UI_ID_DELETE) && (RNA_property_flag(template->prop) & PROP_NEVER_UNLINK) == 0) {
 		if (unlinkop) {
 			but = uiDefIconButO(block, BUT, unlinkop, WM_OP_INVOKE_REGION_WIN, ICON_X, 0, 0, UI_UNIT_X, UI_UNIT_Y, NULL);
@@ -1279,7 +1284,7 @@ static void do_preview_buttons(bContext *C, void *arg, int event)
 {
 	switch (event) {
 		case B_MATPRV:
-			WM_event_add_notifier(C, NC_MATERIAL | ND_SHADING, arg);
+			WM_event_add_notifier(C, NC_MATERIAL | ND_SHADING_PREVIEW, arg);
 			break;
 	}
 }
@@ -1892,32 +1897,45 @@ static uiBlock *curvemap_clipping_func(bContext *C, ARegion *ar, void *cumap_v)
 	return block;
 }
 
+/* only for curvemap_tools_dofunc */
+enum {
+	UICURVE_FUNC_RESET_NEG,
+	UICURVE_FUNC_RESET_POS,
+	UICURVE_FUNC_RESET_VIEW,
+	UICURVE_FUNC_HANDLE_VECTOR,
+	UICURVE_FUNC_HANDLE_AUTO,
+	UICURVE_FUNC_EXTEND_HOZ,
+	UICURVE_FUNC_EXTEND_EXP,
+};
+
 static void curvemap_tools_dofunc(bContext *C, void *cumap_v, int event)
 {
 	CurveMapping *cumap = cumap_v;
 	CurveMap *cuma = cumap->cm + cumap->cur;
 
 	switch (event) {
-		case 0: /* reset */
-			curvemap_reset(cuma, &cumap->clipr, cumap->preset, CURVEMAP_SLOPE_POSITIVE);
+		case UICURVE_FUNC_RESET_NEG:
+		case UICURVE_FUNC_RESET_POS: /* reset */
+			curvemap_reset(cuma, &cumap->clipr, cumap->preset,
+			               (event == -1) ? CURVEMAP_SLOPE_NEGATIVE : CURVEMAP_SLOPE_POSITIVE);
 			curvemapping_changed(cumap, FALSE);
 			break;
-		case 1:
+		case UICURVE_FUNC_RESET_VIEW:
 			cumap->curr = cumap->clipr;
 			break;
-		case 2: /* set vector */
+		case UICURVE_FUNC_HANDLE_VECTOR: /* set vector */
 			curvemap_sethandle(cuma, 1);
 			curvemapping_changed(cumap, FALSE);
 			break;
-		case 3: /* set auto */
+		case UICURVE_FUNC_HANDLE_AUTO: /* set auto */
 			curvemap_sethandle(cuma, 0);
 			curvemapping_changed(cumap, FALSE);
 			break;
-		case 4: /* extend horiz */
+		case UICURVE_FUNC_EXTEND_HOZ: /* extend horiz */
 			cuma->flag &= ~CUMA_EXTEND_EXTRAPOLATE;
 			curvemapping_changed(cumap, FALSE);
 			break;
-		case 5: /* extend extrapolate */
+		case UICURVE_FUNC_EXTEND_EXP: /* extend extrapolate */
 			cuma->flag |= CUMA_EXTEND_EXTRAPOLATE;
 			curvemapping_changed(cumap, FALSE);
 			break;
@@ -1934,17 +1952,17 @@ static uiBlock *curvemap_tools_func(bContext *C, ARegion *ar, void *cumap_v)
 	uiBlockSetButmFunc(block, curvemap_tools_dofunc, cumap_v);
 
 	uiDefIconTextBut(block, BUTM, 1, ICON_BLANK1, IFACE_("Reset View"),          0, yco -= UI_UNIT_Y,
-	                 menuwidth, UI_UNIT_Y, NULL, 0.0, 0.0, 0, 1, "");
+	                 menuwidth, UI_UNIT_Y, NULL, 0.0, 0.0, 0, UICURVE_FUNC_RESET_VIEW, "");
 	uiDefIconTextBut(block, BUTM, 1, ICON_BLANK1, IFACE_("Vector Handle"),       0, yco -= UI_UNIT_Y,
-	                 menuwidth, UI_UNIT_Y, NULL, 0.0, 0.0, 0, 2, "");
+	                 menuwidth, UI_UNIT_Y, NULL, 0.0, 0.0, 0, UICURVE_FUNC_HANDLE_VECTOR, "");
 	uiDefIconTextBut(block, BUTM, 1, ICON_BLANK1, IFACE_("Auto Handle"),         0, yco -= UI_UNIT_Y,
-	                 menuwidth, UI_UNIT_Y, NULL, 0.0, 0.0, 0, 3, "");
+	                 menuwidth, UI_UNIT_Y, NULL, 0.0, 0.0, 0, UICURVE_FUNC_HANDLE_AUTO, "");
 	uiDefIconTextBut(block, BUTM, 1, ICON_BLANK1, IFACE_("Extend Horizontal"),   0, yco -= UI_UNIT_Y,
-	                 menuwidth, UI_UNIT_Y, NULL, 0.0, 0.0, 0, 4, "");
+	                 menuwidth, UI_UNIT_Y, NULL, 0.0, 0.0, 0, UICURVE_FUNC_EXTEND_HOZ, "");
 	uiDefIconTextBut(block, BUTM, 1, ICON_BLANK1, IFACE_("Extend Extrapolated"), 0, yco -= UI_UNIT_Y,
-	                 menuwidth, UI_UNIT_Y, NULL, 0.0, 0.0, 0, 5, "");
+	                 menuwidth, UI_UNIT_Y, NULL, 0.0, 0.0, 0, UICURVE_FUNC_EXTEND_EXP, "");
 	uiDefIconTextBut(block, BUTM, 1, ICON_BLANK1, IFACE_("Reset Curve"),         0, yco -= UI_UNIT_Y,
-	                 menuwidth, UI_UNIT_Y, NULL, 0.0, 0.0, 0, 0, "");
+	                 menuwidth, UI_UNIT_Y, NULL, 0.0, 0.0, 0, UICURVE_FUNC_RESET_POS, "");
 
 	uiBlockSetDirection(block, UI_RIGHT);
 	uiTextBoundsBlock(block, 50);
@@ -1962,13 +1980,13 @@ static uiBlock *curvemap_brush_tools_func(bContext *C, ARegion *ar, void *cumap_
 	uiBlockSetButmFunc(block, curvemap_tools_dofunc, cumap_v);
 
 	uiDefIconTextBut(block, BUTM, 1, ICON_BLANK1, IFACE_("Reset View"),    0, yco -= UI_UNIT_Y,
-	                 menuwidth, UI_UNIT_Y, NULL, 0.0, 0.0, 0, 1, "");
+	                 menuwidth, UI_UNIT_Y, NULL, 0.0, 0.0, 0, UICURVE_FUNC_RESET_VIEW, "");
 	uiDefIconTextBut(block, BUTM, 1, ICON_BLANK1, IFACE_("Vector Handle"), 0, yco -= UI_UNIT_Y,
-	                 menuwidth, UI_UNIT_Y, NULL, 0.0, 0.0, 0, 2, "");
+	                 menuwidth, UI_UNIT_Y, NULL, 0.0, 0.0, 0, UICURVE_FUNC_HANDLE_VECTOR, "");
 	uiDefIconTextBut(block, BUTM, 1, ICON_BLANK1, IFACE_("Auto Handle"),   0, yco -= UI_UNIT_Y,
-	                 menuwidth, UI_UNIT_Y, NULL, 0.0, 0.0, 0, 3, "");
+	                 menuwidth, UI_UNIT_Y, NULL, 0.0, 0.0, 0, UICURVE_FUNC_HANDLE_AUTO, "");
 	uiDefIconTextBut(block, BUTM, 1, ICON_BLANK1, IFACE_("Reset Curve"),   0, yco -= UI_UNIT_Y,
-	                 menuwidth, UI_UNIT_Y, NULL, 0.0, 0.0, 0, 0, "");
+	                 menuwidth, UI_UNIT_Y, NULL, 0.0, 0.0, 0, UICURVE_FUNC_RESET_NEG, "");
 
 	uiBlockSetDirection(block, UI_RIGHT);
 	uiTextBoundsBlock(block, 50);
@@ -2460,14 +2478,14 @@ static void uilist_draw_item_default(struct uiList *ui_list, struct bContext *UN
 
 	/* Simplest one! */
 	switch (ui_list->layout_type) {
-	case UILST_LAYOUT_GRID:
-		uiItemL(layout, "", icon);
-		break;
-	case UILST_LAYOUT_DEFAULT:
-	case UILST_LAYOUT_COMPACT:
-	default:
-		uiItemL(layout, name, icon);
-		break;
+		case UILST_LAYOUT_GRID:
+			uiItemL(layout, "", icon);
+			break;
+		case UILST_LAYOUT_DEFAULT:
+		case UILST_LAYOUT_COMPACT:
+		default:
+			uiItemL(layout, name, icon);
+			break;
 	}
 
 	/* free name */
@@ -2581,145 +2599,163 @@ void uiTemplateList(uiLayout *layout, bContext *C, const char *listtype_name, co
 	ui_list->layout_type = layout_type;
 
 	switch (layout_type) {
-	case UILST_LAYOUT_DEFAULT:
-		/* default rows */
-		if (rows == 0)
-			rows = 5;
-		if (maxrows == 0)
-			maxrows = 5;
-		if (ui_list->list_grip_size != 0)
-			rows = ui_list->list_grip_size;
+		case UILST_LAYOUT_DEFAULT:
+			/* default rows */
+			if (rows == 0)
+				rows = 5;
+			if (maxrows == 0)
+				maxrows = 5;
+			if (ui_list->list_grip_size != 0)
+				rows = ui_list->list_grip_size;
 
-		/* layout */
-		box = uiLayoutListBox(layout, ui_list, dataptr, prop, active_dataptr, activeprop);
-		row = uiLayoutRow(box, FALSE);
-		col = uiLayoutColumn(row, TRUE);
+			/* layout */
+			box = uiLayoutListBox(layout, ui_list, dataptr, prop, active_dataptr, activeprop);
+			row = uiLayoutRow(box, FALSE);
+			col = uiLayoutColumn(row, TRUE);
 
-		/* init numbers */
-		RNA_property_int_range(active_dataptr, activeprop, &min, &max);
+			/* init numbers */
+			RNA_property_int_range(active_dataptr, activeprop, &min, &max);
 
-		if (prop)
-			len = RNA_property_collection_length(dataptr, prop);
-		items = CLAMPIS(len, rows, MAX2(rows, maxrows));
+			if (prop)
+				len = RNA_property_collection_length(dataptr, prop);
+			items = CLAMPIS(len, rows, MAX2(rows, maxrows));
 
-		/* if list length changes and active is out of view, scroll to it */
-		if ((ui_list->list_last_len != len) &&
-		    (activei < ui_list->list_scroll || activei >= ui_list->list_scroll + items))
-		{
-			ui_list->list_scroll = activei;
-		}
-
-		ui_list->list_scroll = min_ii(ui_list->list_scroll, len - items);
-		ui_list->list_scroll = max_ii(ui_list->list_scroll, 0);
-		ui_list->list_size = items;
-		ui_list->list_last_len = len;
-
-		if (dataptr->data && prop) {
-			/* create list items */
-			RNA_PROP_BEGIN (dataptr, itemptr, prop)
+			/* if list length changes and active is out of view, scroll to it */
+			if ((ui_list->list_last_len != len) &&
+			    (activei < ui_list->list_scroll || activei >= ui_list->list_scroll + items))
 			{
-				if (i >= ui_list->list_scroll && i < ui_list->list_scroll + items) {
-					subblock = uiLayoutGetBlock(col);
-					overlap = uiLayoutOverlap(col);
+				ui_list->list_scroll = activei;
+			}
+
+			ui_list->list_scroll = min_ii(ui_list->list_scroll, len - items);
+			ui_list->list_scroll = max_ii(ui_list->list_scroll, 0);
+			ui_list->list_size = items;
+			ui_list->list_last_len = len;
+
+			if (dataptr->data && prop) {
+				/* create list items */
+				RNA_PROP_BEGIN (dataptr, itemptr, prop)
+				{
+					if (i >= ui_list->list_scroll && i < ui_list->list_scroll + items) {
+						subblock = uiLayoutGetBlock(col);
+						overlap = uiLayoutOverlap(col);
+
+						uiBlockSetFlag(subblock, UI_BLOCK_LIST_ITEM);
+
+						/* list item behind label & other buttons */
+						sub = uiLayoutRow(overlap, FALSE);
+
+						but = uiDefButR_prop(subblock, LISTROW, 0, "", 0, 0, UI_UNIT_X * 10, UI_UNIT_Y,
+						                     active_dataptr, activeprop, 0, 0, i, 0, 0, NULL);
+						uiButSetFlag(but, UI_BUT_NO_TOOLTIP);
+
+						sub = uiLayoutRow(overlap, FALSE);
+
+						icon = UI_rnaptr_icon_get(C, &itemptr, rnaicon, false);
+						if (icon == ICON_DOT)
+							icon = ICON_NONE;
+						draw_item(ui_list, C, sub, dataptr, &itemptr, icon, active_dataptr, active_propname, i);
+
+						/* If we are "drawing" active item, set all labels as active. */
+						if (i == activei) {
+							ui_layout_list_set_labels_active(sub);
+						}
+
+						uiBlockClearFlag(subblock, UI_BLOCK_LIST_ITEM);
+					}
+					i++;
+				}
+				RNA_PROP_END;
+			}
+
+			/* add dummy buttons to fill space */
+			while (i < ui_list->list_scroll + items) {
+				if (i >= ui_list->list_scroll)
+					uiItemL(col, "", ICON_NONE);
+				i++;
+			}
+
+			/* add scrollbar */
+			if (len > items) {
+				col = uiLayoutColumn(row, FALSE);
+				uiDefButI(block, SCROLL, 0, "", 0, 0, UI_UNIT_X * 0.75, UI_UNIT_Y * items, &ui_list->list_scroll,
+				          0, len - items, items, 0, "");
+			}
+			break;
+		case UILST_LAYOUT_COMPACT:
+			row = uiLayoutRow(layout, TRUE);
+
+			if (dataptr->data && prop) {
+				/* create list items */
+				RNA_PROP_BEGIN (dataptr, itemptr, prop)
+				{
+					found = (activei == i);
+
+					if (found) {
+						icon = UI_rnaptr_icon_get(C, &itemptr, rnaicon, false);
+						if (icon == ICON_DOT)
+							icon = ICON_NONE;
+						draw_item(ui_list, C, row, dataptr, &itemptr, icon, active_dataptr, active_propname, i);
+					}
+
+					i++;
+				}
+				RNA_PROP_END;
+			}
+
+			/* if list is empty, add in dummy button */
+			if (i == 0)
+				uiItemL(row, "", ICON_NONE);
+
+			/* next/prev button */
+			BLI_snprintf(numstr, sizeof(numstr), "%d :", i);
+			but = uiDefIconTextButR_prop(block, NUM, 0, 0, numstr, 0, 0, UI_UNIT_X * 5, UI_UNIT_Y,
+			                             active_dataptr, activeprop, 0, 0, 0, 0, 0, "");
+			if (i == 0)
+				uiButSetFlag(but, UI_BUT_DISABLED);
+			break;
+		case UILST_LAYOUT_GRID:
+			box = uiLayoutListBox(layout, ui_list, dataptr, prop, active_dataptr, activeprop);
+			col = uiLayoutColumn(box, TRUE);
+			row = uiLayoutRow(col, FALSE);
+
+			if (dataptr->data && prop) {
+				/* create list items */
+				RNA_PROP_BEGIN (dataptr, itemptr, prop)
+				{
+					/* create button */
+					if (!(i % 9))
+						row = uiLayoutRow(col, FALSE);
+
+					subblock = uiLayoutGetBlock(row);
+					overlap = uiLayoutOverlap(row);
+
+					uiBlockSetFlag(subblock, UI_BLOCK_LIST_ITEM);
 
 					/* list item behind label & other buttons */
 					sub = uiLayoutRow(overlap, FALSE);
 
 					but = uiDefButR_prop(subblock, LISTROW, 0, "", 0, 0, UI_UNIT_X * 10, UI_UNIT_Y,
-					                     active_dataptr, activeprop, 0, 0, i, 0, 0, "");
+					                     active_dataptr, activeprop, 0, 0, i, 0, 0, NULL);
 					uiButSetFlag(but, UI_BUT_NO_TOOLTIP);
 
 					sub = uiLayoutRow(overlap, FALSE);
 
 					icon = UI_rnaptr_icon_get(C, &itemptr, rnaicon, false);
-					if (icon == ICON_DOT)
-						icon = ICON_NONE;
 					draw_item(ui_list, C, sub, dataptr, &itemptr, icon, active_dataptr, active_propname, i);
+
+					/* If we are "drawing" active item, set all labels as active. */
+					if (i == activei) {
+						ui_layout_list_set_labels_active(sub);
+					}
+
+					uiBlockClearFlag(subblock, UI_BLOCK_LIST_ITEM);
+
+					i++;
 				}
-				i++;
+				RNA_PROP_END;
 			}
-			RNA_PROP_END;
-		}
-
-		/* add dummy buttons to fill space */
-		while (i < ui_list->list_scroll + items) {
-			if (i >= ui_list->list_scroll)
-				uiItemL(col, "", ICON_NONE);
-			i++;
-		}
-
-		/* add scrollbar */
-		if (len > items) {
-			col = uiLayoutColumn(row, FALSE);
-			uiDefButI(block, SCROLL, 0, "", 0, 0, UI_UNIT_X * 0.75, UI_UNIT_Y * items, &ui_list->list_scroll,
-			          0, len - items, items, 0, "");
-		}
-		break;
-	case UILST_LAYOUT_COMPACT:
-		row = uiLayoutRow(layout, TRUE);
-
-		if (dataptr->data && prop) {
-			/* create list items */
-			RNA_PROP_BEGIN (dataptr, itemptr, prop)
-			{
-				found = (activei == i);
-
-				if (found) {
-					icon = UI_rnaptr_icon_get(C, &itemptr, rnaicon, false);
-					if (icon == ICON_DOT)
-						icon = ICON_NONE;
-					draw_item(ui_list, C, row, dataptr, &itemptr, icon, active_dataptr, active_propname, i);
-				}
-
-				i++;
-			}
-			RNA_PROP_END;
-		}
-
-		/* if list is empty, add in dummy button */
-		if (i == 0)
-			uiItemL(row, "", ICON_NONE);
-
-		/* next/prev button */
-		BLI_snprintf(numstr, sizeof(numstr), "%d :", i);
-		but = uiDefIconTextButR_prop(block, NUM, 0, 0, numstr, 0, 0, UI_UNIT_X * 5, UI_UNIT_Y,
-		                             active_dataptr, activeprop, 0, 0, 0, 0, 0, "");
-		if (i == 0)
-			uiButSetFlag(but, UI_BUT_DISABLED);
-		break;
-	case UILST_LAYOUT_GRID:
-		box = uiLayoutListBox(layout, ui_list, dataptr, prop, active_dataptr, activeprop);
-		col = uiLayoutColumn(box, TRUE);
-		row = uiLayoutRow(col, FALSE);
-
-		if (dataptr->data && prop) {
-			/* create list items */
-			RNA_PROP_BEGIN (dataptr, itemptr, prop)
-			{
-				/* create button */
-				if (!(i % 9))
-					row = uiLayoutRow(col, FALSE);
-
-				subblock = uiLayoutGetBlock(row);
-				overlap = uiLayoutOverlap(row);
-
-				/* list item behind label & other buttons */
-				sub = uiLayoutRow(overlap, FALSE);
-
-				but = uiDefButR_prop(subblock, LISTROW, 0, "", 0, 0, UI_UNIT_X * 10, UI_UNIT_Y,
-				                     active_dataptr, activeprop, 0, 0, i, 0, 0, "");
-				uiButSetFlag(but, UI_BUT_NO_TOOLTIP);
-
-				sub = uiLayoutRow(overlap, FALSE);
-
-				icon = UI_rnaptr_icon_get(C, &itemptr, rnaicon, false);
-				draw_item(ui_list, C, sub, dataptr, &itemptr, icon, active_dataptr, active_propname, i);
-
-				i++;
-			}
-			RNA_PROP_END;
-		}
-		break;
+			break;
 	}
 }
 
@@ -2737,7 +2773,7 @@ static void operator_search_cb(const bContext *C, void *UNUSED(arg), const char 
 {
 	GHashIterator *iter = WM_operatortype_iter();
 
-	for (; BLI_ghashIterator_notDone(iter); BLI_ghashIterator_step(iter)) {
+	for (; !BLI_ghashIterator_done(iter); BLI_ghashIterator_step(iter)) {
 		wmOperatorType *ot = BLI_ghashIterator_getValue(iter);
 
 		if ((ot->flag & OPTYPE_INTERNAL) && (G.debug & G_DEBUG_WM) == 0)
@@ -2753,7 +2789,7 @@ static void operator_search_cb(const bContext *C, void *UNUSED(arg), const char 
 				
 				/* check for hotkey */
 				if (len < sizeof(name) - 6) {
-					if (WM_key_event_operator_string(C, ot->idname, WM_OP_EXEC_DEFAULT, NULL, TRUE,
+					if (WM_key_event_operator_string(C, ot->idname, WM_OP_EXEC_DEFAULT, NULL, true,
 					                                 &name[len + 1], sizeof(name) - len - 1))
 					{
 						name[len] = '|';
@@ -2876,15 +2912,15 @@ void uiTemplateRunningJobs(uiLayout *layout, bContext *C)
 		uiDefIconBut(block, BUT, handle_event, ICON_PANEL_CLOSE, 0, UI_UNIT_Y * 0.1, UI_UNIT_X * 0.8, UI_UNIT_Y * 0.8,
 		             NULL, 0.0f, 0.0f, 0, 0, TIP_("Stop this job"));
 		uiDefBut(block, PROGRESSBAR, 0, WM_jobs_name(wm, owner), 
-		         UI_UNIT_X, 0, 100, UI_UNIT_Y, NULL, 0.0f, 0.0f, WM_jobs_progress(wm, owner), 0, TIP_("Progress"));
+		         UI_UNIT_X, 0, UI_UNIT_X * 5.0f, UI_UNIT_Y, NULL, 0.0f, 0.0f, WM_jobs_progress(wm, owner), 0, TIP_("Progress"));
 		
 		uiLayoutRow(layout, FALSE);
 	}
 	if (WM_jobs_test(wm, screen, WM_JOB_TYPE_SCREENCAST))
-		uiDefIconTextBut(block, BUT, B_STOPCAST, ICON_CANCEL, IFACE_("Capture"), 0, 0, 85, UI_UNIT_Y,
+		uiDefIconTextBut(block, BUT, B_STOPCAST, ICON_CANCEL, IFACE_("Capture"), 0, 0, UI_UNIT_X * 4.25f, UI_UNIT_Y,
 		                 NULL, 0.0f, 0.0f, 0, 0, TIP_("Stop screencast"));
 	if (screen->animtimer)
-		uiDefIconTextBut(block, BUT, B_STOPANIM, ICON_CANCEL, IFACE_("Anim Player"), 0, 0, 100, UI_UNIT_Y,
+		uiDefIconTextBut(block, BUT, B_STOPANIM, ICON_CANCEL, IFACE_("Anim Player"), 0, 0, UI_UNIT_X * 5.0f, UI_UNIT_Y,
 		                 NULL, 0.0f, 0.0f, 0, 0, TIP_("Stop animation playback"));
 }
 
@@ -2986,16 +3022,16 @@ static void template_keymap_item_properties(uiLayout *layout, const char *title,
 		/* recurse for nested properties */
 		if (RNA_property_type(prop) == PROP_POINTER) {
 			PointerRNA propptr = RNA_property_pointer_get(ptr, prop);
-			const char *name = RNA_property_ui_name(prop);
 
 			if (propptr.data && RNA_struct_is_a(propptr.type, &RNA_OperatorProperties)) {
+				const char *name = RNA_property_ui_name(prop);
 				template_keymap_item_properties(layout, name, &propptr);
 				continue;
 			}
 		}
 
 		/* add property */
-		uiItemR(flow, ptr, RNA_property_identifier(prop), 0, NULL, ICON_NONE);
+		uiItemFullR(flow, ptr, prop, -1, 0, 0, NULL, ICON_NONE);
 	}
 	RNA_STRUCT_END;
 }
@@ -3100,6 +3136,7 @@ void uiTemplateComponentMenu(uiLayout *layout, PointerRNA *ptr, const char *prop
 {
 	ComponentMenuArgs *args = MEM_callocN(sizeof(ComponentMenuArgs), "component menu template args");
 	uiBlock *block;
+	uiBut *but;
 	
 	args->ptr = *ptr;
 	BLI_strncpy(args->propname, propname, sizeof(args->propname));
@@ -3107,7 +3144,11 @@ void uiTemplateComponentMenu(uiLayout *layout, PointerRNA *ptr, const char *prop
 	block = uiLayoutGetBlock(layout);
 	uiBlockBeginAlign(block);
 
-	uiDefBlockButN(block, component_menu, args, name, 0, 0, UI_UNIT_X * 6, UI_UNIT_Y, "");
+	but = uiDefBlockButN(block, component_menu, args, name, 0, 0, UI_UNIT_X * 6, UI_UNIT_Y, "");
+	/* set rna directly, uiDefBlockButN doesn't do this */
+	but->rnapoin = *ptr;
+	but->rnaprop = RNA_struct_find_property(ptr, propname);
+	but->rnaindex = 0;
 	
 	uiBlockEndAlign(block);
 }

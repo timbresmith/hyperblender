@@ -243,6 +243,11 @@ typedef struct ParticleSettings {
 	struct Ipo *ipo  DNA_DEPRECATED;  /* old animation system, deprecated for 2.5 */
 	struct PartDeflect *pd;
 	struct PartDeflect *pd2;
+
+	/* modified dm support */
+	short use_modifier_stack;
+	short pad[3];
+
 } ParticleSettings;
 
 typedef struct ParticleSystem {
@@ -468,6 +473,7 @@ typedef struct ParticleSystem {
 #define PART_ROT_OB_X		6
 #define PART_ROT_OB_Y		7
 #define PART_ROT_OB_Z		8
+#define PART_ROT_NOR_TAN	9
 
 /* part->avemode */
 #define PART_AVE_VELOCITY	1

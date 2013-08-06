@@ -36,7 +36,7 @@
  *  \ingroup bke
  */
 
-
+#include <stdlib.h>
 #include <stddef.h>
 #include <string.h>
 #include <stdarg.h>
@@ -60,6 +60,7 @@
 #include "BKE_cloth.h"
 #include "BKE_key.h"
 #include "BKE_multires.h"
+#include "BKE_DerivedMesh.h"
 
 /* may move these, only for modifier_path_relbase */
 #include "BKE_global.h" /* ugh, G.main->name only */
@@ -127,14 +128,14 @@ void modifier_unique_name(ListBase *modifiers, ModifierData *md)
 	}
 }
 
-int modifier_dependsOnTime(ModifierData *md) 
+bool modifier_dependsOnTime(ModifierData *md)
 {
 	ModifierTypeInfo *mti = modifierType_getInfo(md->type);
 
 	return mti->dependsOnTime && mti->dependsOnTime(md);
 }
 
-int modifier_supportsMapping(ModifierData *md)
+bool modifier_supportsMapping(ModifierData *md)
 {
 	ModifierTypeInfo *mti = modifierType_getInfo(md->type);
 
@@ -142,7 +143,7 @@ int modifier_supportsMapping(ModifierData *md)
 	        (mti->flags & eModifierTypeFlag_SupportsMapping));
 }
 
-int modifier_isPreview(ModifierData *md)
+bool modifier_isPreview(ModifierData *md)
 {
 	ModifierTypeInfo *mti = modifierType_getInfo(md->type);
 
@@ -237,7 +238,7 @@ void modifier_copyData(ModifierData *md, ModifierData *target)
 		mti->copyData(md, target);
 }
 
-int modifier_couldBeCage(struct Scene *scene, ModifierData *md)
+bool modifier_couldBeCage(struct Scene *scene, ModifierData *md)
 {
 	ModifierTypeInfo *mti = modifierType_getInfo(md->type);
 
@@ -249,13 +250,13 @@ int modifier_couldBeCage(struct Scene *scene, ModifierData *md)
 	        modifier_supportsMapping(md));
 }
 
-int modifier_isSameTopology(ModifierData *md)
+bool modifier_isSameTopology(ModifierData *md)
 {
 	ModifierTypeInfo *mti = modifierType_getInfo(md->type);
 	return ELEM(mti->type, eModifierTypeType_OnlyDeform, eModifierTypeType_NonGeometrical);
 }
 
-int modifier_isNonGeometrical(ModifierData *md)
+bool modifier_isNonGeometrical(ModifierData *md)
 {
 	ModifierTypeInfo *mti = modifierType_getInfo(md->type);
 	return (mti->type == eModifierTypeType_NonGeometrical);
@@ -320,35 +321,35 @@ int modifiers_getCageIndex(struct Scene *scene, Object *ob, int *lastPossibleCag
 }
 
 
-int modifiers_isSoftbodyEnabled(Object *ob)
+bool modifiers_isSoftbodyEnabled(Object *ob)
 {
 	ModifierData *md = modifiers_findByType(ob, eModifierType_Softbody);
 
 	return (md && md->mode & (eModifierMode_Realtime | eModifierMode_Render));
 }
 
-int modifiers_isClothEnabled(Object *ob)
+bool modifiers_isClothEnabled(Object *ob)
 {
 	ModifierData *md = modifiers_findByType(ob, eModifierType_Cloth);
 
 	return (md && md->mode & (eModifierMode_Realtime | eModifierMode_Render));
 }
 
-int modifiers_isModifierEnabled(Object *ob, int modifierType)
+bool modifiers_isModifierEnabled(Object *ob, int modifierType)
 {
 	ModifierData *md = modifiers_findByType(ob, modifierType);
 
 	return (md && md->mode & (eModifierMode_Realtime | eModifierMode_Render));
 }
 
-int modifiers_isParticleEnabled(Object *ob)
+bool modifiers_isParticleEnabled(Object *ob)
 {
 	ModifierData *md = modifiers_findByType(ob, eModifierType_ParticleSystem);
 
 	return (md && md->mode & (eModifierMode_Realtime | eModifierMode_Render));
 }
 
-int modifier_isEnabled(struct Scene *scene, ModifierData *md, int required_mode)
+bool modifier_isEnabled(struct Scene *scene, ModifierData *md, int required_mode)
 {
 	ModifierTypeInfo *mti = modifierType_getInfo(md->type);
 
@@ -363,7 +364,9 @@ int modifier_isEnabled(struct Scene *scene, ModifierData *md, int required_mode)
 	return 1;
 }
 
-CDMaskLink *modifiers_calcDataMasks(struct Scene *scene, Object *ob, ModifierData *md, CustomDataMask dataMask, int required_mode)
+CDMaskLink *modifiers_calcDataMasks(struct Scene *scene, Object *ob, ModifierData *md,
+                                    CustomDataMask dataMask, int required_mode,
+                                    ModifierData *previewmd, CustomDataMask previewmask)
 {
 	CDMaskLink *dataMasks = NULL;
 	CDMaskLink *curr, *prev;
@@ -374,9 +377,14 @@ CDMaskLink *modifiers_calcDataMasks(struct Scene *scene, Object *ob, ModifierDat
 
 		curr = MEM_callocN(sizeof(CDMaskLink), "CDMaskLink");
 		
-		if (modifier_isEnabled(scene, md, required_mode))
+		if (modifier_isEnabled(scene, md, required_mode)) {
 			if (mti->requiredDataMask)
 				curr->mask = mti->requiredDataMask(ob, md);
+
+			if (previewmd == md) {
+				curr->mask |= previewmask;
+			}
+		}
 
 		/* prepend new datamask */
 		curr->next = dataMasks;
@@ -413,7 +421,7 @@ ModifierData *modifiers_getLastPreview(struct Scene *scene, ModifierData *md, in
 {
 	ModifierData *tmp_md = NULL;
 
-	if (required_mode != eModifierMode_Realtime)
+	if ((required_mode & ~eModifierMode_Editmode) != eModifierMode_Realtime)
 		return tmp_md;
 
 	/* Find the latest modifier in stack generating preview. */
@@ -569,7 +577,7 @@ Object *modifiers_isDeformedByCurve(Object *ob)
 	return NULL;
 }
 
-int modifiers_usesArmature(Object *ob, bArmature *arm)
+bool modifiers_usesArmature(Object *ob, bArmature *arm)
 {
 	ModifierData *md = modifiers_getVirtualModifierList(ob);
 
@@ -577,24 +585,24 @@ int modifiers_usesArmature(Object *ob, bArmature *arm)
 		if (md->type == eModifierType_Armature) {
 			ArmatureModifierData *amd = (ArmatureModifierData *) md;
 			if (amd->object && amd->object->data == arm)
-				return 1;
+				return true;
 		}
 	}
 
-	return 0;
+	return false;
 }
 
-int modifier_isCorrectableDeformed(ModifierData *md)
+bool modifier_isCorrectableDeformed(ModifierData *md)
 {
 	if (md->type == eModifierType_Armature)
-		return 1;
+		return true;
 	if (md->type == eModifierType_ShapeKey)
-		return 1;
+		return true;
 	
-	return 0;
+	return false;
 }
 
-int modifiers_isCorrectableDeformed(Object *ob)
+bool modifiers_isCorrectableDeformed(Object *ob)
 {
 	ModifierData *md = modifiers_getVirtualModifierList(ob);
 	
@@ -603,24 +611,24 @@ int modifiers_isCorrectableDeformed(Object *ob)
 			/* pass */
 		}
 		else if (modifier_isCorrectableDeformed(md)) {
-			return 1;
+			return true;
 		}
 	}
-	return 0;
+	return false;
 }
 
 /* Check whether the given object has a modifier in its stack that uses WEIGHT_MCOL CD layer
  * to preview something... Used by DynamicPaint and WeightVG currently. */
-int modifiers_isPreview(Object *ob)
+bool modifiers_isPreview(Object *ob)
 {
 	ModifierData *md = ob->modifiers.first;
 
 	for (; md; md = md->next) {
 		if (modifier_isPreview(md))
-			return TRUE;
+			return true;
 	}
 
-	return FALSE;
+	return false;
 }
 
 void modifier_freeTemporaryData(ModifierData *md)
@@ -686,3 +694,65 @@ void modifier_path_init(char *path, int path_maxlen, const char *name)
 	                 G.relbase_valid ? "//" : BLI_temporary_dir(),
 	                 name);
 }
+
+
+/* wrapper around ModifierTypeInfo.applyModifier that ensures valid normals */
+
+struct DerivedMesh *modwrap_applyModifier(
+        ModifierData *md, Object *ob,
+        struct DerivedMesh *dm,
+        ModifierApplyFlag flag)
+{
+	ModifierTypeInfo *mti = modifierType_getInfo(md->type);
+	BLI_assert(CustomData_has_layer(&dm->polyData, CD_NORMAL) == false);
+
+	if (mti->dependsOnNormals && mti->dependsOnNormals(md)) {
+		DM_ensure_normals(dm);
+	}
+	return mti->applyModifier(md, ob, dm, flag);
+}
+
+struct DerivedMesh *modwrap_applyModifierEM(
+        ModifierData *md, Object *ob,
+        struct BMEditMesh *em,
+        DerivedMesh *dm,
+        ModifierApplyFlag flag)
+{
+	ModifierTypeInfo *mti = modifierType_getInfo(md->type);
+	BLI_assert(CustomData_has_layer(&dm->polyData, CD_NORMAL) == false);
+
+	if (mti->dependsOnNormals && mti->dependsOnNormals(md)) {
+		DM_ensure_normals(dm);
+	}
+	return mti->applyModifierEM(md, ob, em, dm, flag);
+}
+
+void modwrap_deformVerts(
+        ModifierData *md, Object *ob,
+        DerivedMesh *dm,
+        float (*vertexCos)[3], int numVerts,
+        ModifierApplyFlag flag)
+{
+	ModifierTypeInfo *mti = modifierType_getInfo(md->type);
+	BLI_assert(!dm || CustomData_has_layer(&dm->polyData, CD_NORMAL) == false);
+
+	if (dm && mti->dependsOnNormals && mti->dependsOnNormals(md)) {
+		DM_ensure_normals(dm);
+	}
+	mti->deformVerts(md, ob, dm, vertexCos, numVerts, flag);
+}
+
+void modwrap_deformVertsEM(
+        ModifierData *md, Object *ob,
+        struct BMEditMesh *em, DerivedMesh *dm,
+        float (*vertexCos)[3], int numVerts)
+{
+	ModifierTypeInfo *mti = modifierType_getInfo(md->type);
+	BLI_assert(!dm || CustomData_has_layer(&dm->polyData, CD_NORMAL) == false);
+
+	if (dm && mti->dependsOnNormals && mti->dependsOnNormals(md)) {
+		DM_ensure_normals(dm);
+	}
+	mti->deformVertsEM(md, ob, em, dm, vertexCos, numVerts);
+}
+/* end modifier callback wrappers */

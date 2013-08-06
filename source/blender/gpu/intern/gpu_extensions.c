@@ -900,8 +900,7 @@ void GPU_framebuffer_texture_detach(GPUFrameBuffer *fb, GPUTexture *tex)
 void GPU_framebuffer_texture_bind(GPUFrameBuffer *UNUSED(fb), GPUTexture *tex, int w, int h)
 {
 	/* push attributes */
-	glPushAttrib(GL_ENABLE_BIT);
-	glPushAttrib(GL_VIEWPORT_BIT);
+	glPushAttrib(GL_ENABLE_BIT | GL_VIEWPORT_BIT);
 	glDisable(GL_SCISSOR_TEST);
 
 	/* bind framebuffer */
@@ -926,7 +925,6 @@ void GPU_framebuffer_texture_unbind(GPUFrameBuffer *UNUSED(fb), GPUTexture *UNUS
 	glPopMatrix();
 
 	/* restore attributes */
-	glPopAttrib();
 	glPopAttrib();
 	glEnable(GL_SCISSOR_TEST);
 }
@@ -990,6 +988,8 @@ void GPU_framebuffer_blur(GPUFrameBuffer *fb, GPUTexture *tex, GPUFrameBuffer *b
 	glLoadIdentity();
 	glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
+
+	glDisable(GL_DEPTH_TEST);
 
 	GPU_texture_bind(tex, 0);
 
@@ -1147,7 +1147,7 @@ static void shader_print_errors(const char *task, char *log, const char *code)
 static const char *gpu_shader_standard_extensions(void)
 {
 	/* need this extensions for high quality bump mapping */
-	if(GPU_bicubic_bump_support()) {
+	if (GPU_bicubic_bump_support()) {
 		return "#version 130\n"
 		       "#extension GL_ARB_texture_query_lod: enable\n"
 		       "#define BUMP_BICUBIC\n";
@@ -1159,11 +1159,11 @@ static const char *gpu_shader_standard_extensions(void)
 static const char *gpu_shader_standard_defines(void)
 {
 	/* some useful defines to detect GPU type */
-	if(GPU_type_matches(GPU_DEVICE_ATI, GPU_OS_ANY, GPU_DRIVER_ANY))
+	if (GPU_type_matches(GPU_DEVICE_ATI, GPU_OS_ANY, GPU_DRIVER_ANY))
 		return "#define GPU_ATI\n";
-	else if(GPU_type_matches(GPU_DEVICE_NVIDIA, GPU_OS_ANY, GPU_DRIVER_ANY))
+	else if (GPU_type_matches(GPU_DEVICE_NVIDIA, GPU_OS_ANY, GPU_DRIVER_ANY))
 		return "#define GPU_NVIDIA\n";
-	else if(GPU_type_matches(GPU_DEVICE_INTEL, GPU_OS_ANY, GPU_DRIVER_ANY))
+	else if (GPU_type_matches(GPU_DEVICE_INTEL, GPU_OS_ANY, GPU_DRIVER_ANY))
 		return "#define GPU_INTEL\n";
 	
 	return "";

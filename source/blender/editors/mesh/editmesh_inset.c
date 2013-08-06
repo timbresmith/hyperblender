@@ -35,7 +35,7 @@
 
 #include "BKE_context.h"
 #include "BKE_global.h"
-#include "BKE_tessmesh.h"
+#include "BKE_editmesh.h"
 
 #include "RNA_define.h"
 #include "RNA_access.h"
@@ -111,7 +111,7 @@ static bool edbm_inset_init(bContext *C, wmOperator *op, const bool is_modal)
 {
 	InsetData *opdata;
 	Object *obedit = CTX_data_edit_object(C);
-	BMEditMesh *em = BMEdit_FromObject(obedit);
+	BMEditMesh *em = BKE_editmesh_from_object(obedit);
 
 	if (em->bm->totvertsel == 0) {
 		return false;
@@ -136,7 +136,7 @@ static bool edbm_inset_init(bContext *C, wmOperator *op, const bool is_modal)
 
 		opdata->mesh_backup = EDBM_redo_state_store(em);
 		opdata->draw_handle_pixel = ED_region_draw_cb_activate(ar->type, ED_region_draw_mouse_line_cb, opdata->mcenter, REGION_DRAW_POST_PIXEL);
-		G.moving = true;
+		G.moving = G_TRANSFORM_EDIT;
 		opdata->twtype = v3d->twtype;
 		v3d->twtype = 0;
 	}
@@ -157,7 +157,7 @@ static void edbm_inset_exit(bContext *C, wmOperator *op)
 		EDBM_redo_state_free(&opdata->mesh_backup, NULL, false);
 		ED_region_draw_cb_exit(ar->type, opdata->draw_handle_pixel);
 		v3d->twtype = opdata->twtype;
-		G.moving = false;
+		G.moving = 0;
 	}
 
 	if (sa) {
@@ -208,8 +208,10 @@ static bool edbm_inset_calc(wmOperator *op)
 
 	if (use_individual) {
 		EDBM_op_init(em, &bmop, op,
-		             "inset_individual faces=%hf thickness=%f depth=%f use_even_offset=%b use_interpolate=%b",
-		             BM_ELEM_SELECT, thickness, depth, use_even_offset, use_interpolate);
+		             "inset_individual faces=%hf use_even_offset=%b  use_relative_offset=%b"
+		             "use_interpolate=%b thickness=%f depth=%f",
+		             BM_ELEM_SELECT, use_even_offset, use_relative_offset, use_interpolate,
+		             thickness, depth);
 	}
 	else {
 		EDBM_op_init(em, &bmop, op,

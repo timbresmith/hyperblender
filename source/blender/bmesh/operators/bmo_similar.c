@@ -262,6 +262,7 @@ void bmo_similar_faces_exec(BMesh *bm, BMOperator *op)
 #endif
 					default:
 						BLI_assert(0);
+						break;
 				}
 			}
 		}
@@ -495,6 +496,7 @@ void bmo_similar_edges_exec(BMesh *bm, BMOperator *op)
 #endif
 					default:
 						BLI_assert(0);
+						break;
 				}
 			}
 		}
@@ -530,6 +532,7 @@ void bmo_similar_verts_exec(BMesh *bm, BMOperator *op)
 {
 #define VERT_MARK	1
 
+	const int cd_dvert_offset = CustomData_get_offset(&bm->vdata, CD_MDEFORMVERT);
 	BMOIter vs_iter;	/* selected verts iterator */
 	BMIter v_iter;		/* mesh verts iterator */
 	BMVert *vs;		/* selected vertex */
@@ -573,13 +576,9 @@ void bmo_similar_verts_exec(BMesh *bm, BMOperator *op)
 				break;
 
 			case SIMVERT_VGROUP:
-				if (CustomData_has_layer(&(bm->vdata), CD_MDEFORMVERT)) {
-					v_ext[i].dvert = CustomData_bmesh_get(&bm->vdata, v_ext[i].v->head.data, CD_MDEFORMVERT);
-				}
-				else {
-					v_ext[i].dvert = NULL;
-				}
+				v_ext[i].dvert = (cd_dvert_offset != -1) ? BM_ELEM_CD_GET_VOID_P(v_ext[i].v, cd_dvert_offset) : NULL;
 				break;
+
 			case SIMVERT_EDGE:
 				v_ext[i].num_edges = BM_vert_edge_count(v);
 				break;
@@ -630,6 +629,7 @@ void bmo_similar_verts_exec(BMesh *bm, BMOperator *op)
 						break;
 					default:
 						BLI_assert(0);
+						break;
 				}
 			}
 		}

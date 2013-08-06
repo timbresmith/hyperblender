@@ -39,6 +39,10 @@
 #include "../system/BaseIterator.h"
 #include "../system/FreestyleConfig.h"
 
+#ifdef WITH_CXX_GUARDEDALLOC
+#include "MEM_guardedalloc.h"
+#endif
+
 namespace Freestyle {
 
 /**********************************/
@@ -231,6 +235,10 @@ public:
 
 	/* connects a FEdge to the graph trough a SVertex */
 	//FEdge *Connect(FEdge *ioEdge, SVertex *ioVertex);
+
+#ifdef WITH_CXX_GUARDEDALLOC
+	MEM_CXX_CLASS_ALLOC_FUNCS("Freestyle:ViewMap")
+#endif
 };
 
 /**********************************/
@@ -357,6 +365,11 @@ public:
 
 	/*! Returns an orientedViewEdgeIterator pointing to the ViewEdge given as argument. */
 	virtual ViewVertexInternal::orientedViewEdgeIterator edgesIterator(ViewEdge *iEdge) = 0;
+
+#ifdef WITH_CXX_GUARDEDALLOC
+	MEM_CXX_CLASS_ALLOC_FUNCS("Freestyle:ViewVertex")
+#endif
+
 };
 
 /**********************************/
@@ -625,6 +638,11 @@ public:
 
 	/*! Returns an orientedViewEdgeIterator pointing to the ViewEdge given as argument. */
 	virtual ViewVertexInternal::orientedViewEdgeIterator edgesIterator(ViewEdge *iEdge);
+
+#ifdef WITH_CXX_GUARDEDALLOC
+	MEM_CXX_CLASS_ALLOC_FUNCS("Freestyle:TVertex")
+#endif
+
 };
 
 
@@ -837,6 +855,11 @@ public:
 
 	/*! Returns an orientedViewEdgeIterator pointing to the ViewEdge given as argument. */
 	virtual ViewVertexInternal::orientedViewEdgeIterator edgesIterator(ViewEdge *iEdge);
+
+#ifdef WITH_CXX_GUARDEDALLOC
+	MEM_CXX_CLASS_ALLOC_FUNCS("Freestyle:NonTVertex")
+#endif
+
 };
 
 /**********************************/
@@ -1352,6 +1375,11 @@ public:
 	 *    the sampling value.
 	 */
 	virtual Interface0DIterator pointsEnd(float t = 0.0f);
+
+#ifdef WITH_CXX_GUARDEDALLOC
+	MEM_CXX_CLASS_ALLOC_FUNCS("Freestyle:ViewEdge")
+#endif
+
 };
 
 
@@ -1584,6 +1612,10 @@ public:
 
 	/* removes the view vertex iViewVertex in the View Shape. */
 	void RemoveVertex(ViewVertex *iViewVertex);
+
+#ifdef WITH_CXX_GUARDEDALLOC
+	MEM_CXX_CLASS_ALLOC_FUNCS("Freestyle:ViewShape")
+#endif
 };
 
 

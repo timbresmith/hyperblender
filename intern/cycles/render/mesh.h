@@ -55,7 +55,6 @@ public:
 		int first_key;
 		int num_keys;
 		uint shader;
-		uint pad;
 
 		int num_segments() { return num_keys - 1; }
 	};
@@ -111,6 +110,7 @@ public:
 
 	void reserve(int numverts, int numfaces, int numcurves, int numcurvekeys);
 	void clear();
+	void set_triangle(int i, int v0, int v1, int v2, int shader, bool smooth);
 	void add_triangle(int v0, int v1, int v2, int shader, bool smooth);
 	void add_curve_key(float3 loc, float radius);
 	void add_curve(int first_key, int num_keys, int shader);
@@ -141,7 +141,7 @@ public:
 	MeshManager();
 	~MeshManager();
 
-	bool displace(Device *device, Scene *scene, Mesh *mesh, Progress& progress);
+	bool displace(Device *device, DeviceScene *dscene, Scene *scene, Mesh *mesh, Progress& progress);
 
 	/* attributes */
 	void update_osl_attributes(Device *device, Scene *scene, vector<AttributeRequestSet>& mesh_attributes);

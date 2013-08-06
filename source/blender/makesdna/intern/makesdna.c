@@ -55,7 +55,7 @@
 #include "MEM_guardedalloc.h"
 #include "DNA_sdna_types.h"
 
-#include "BLO_sys_types.h" // for intptr_t support
+#include "../blenlib/BLI_sys_types.h" // for intptr_t support
 
 #define SDNA_MAX_FILENAME_LENGTH 255
 
@@ -965,7 +965,7 @@ static int make_structDNA(const char *baseDirectory, FILE *file)
 	types = MEM_callocN(sizeof(char *) * maxnr, "types");
 	typelens_native = MEM_callocN(sizeof(short) * maxnr, "typelens_native");
 	typelens_64 = MEM_callocN(sizeof(short) * maxnr, "typelens_64");
-	structs = MEM_callocN(sizeof(short) * maxnr, "structs");
+	structs = MEM_callocN(sizeof(short *) * maxnr, "structs");
 
 	/* insertion of all known types */
 	/* watch it: uint is not allowed! use in structs an unsigned int */

@@ -26,6 +26,11 @@
 # Generated code has some unused vars we can ignore.
 remove_strict_flags()
 
+if(CMAKE_COMPILER_IS_GNUCC)
+	# add here so we fail early.
+	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror=implicit-function-declaration")
+endif()
+
 # message(STATUS "Configuring makesrna")
 
 # files rna_access.c rna_define.c makesrna.c intentionally excluded.
@@ -247,12 +252,16 @@ if(WITH_BULLET)
 	add_definitions(-DWITH_BULLET)
 endif()
 
+# for mallocn.c
+if (WITH_GUARDEDALLOC)
+	add_definitions(-DWITH_GUARDEDALLOC)
+endif()
+
 # Build makesrna executable
 blender_include_dirs(
 	.
 	..
 	../../blenkernel
-	../../blenloader
 	../../blenlib
 	../../bmesh
 	../../blenfont

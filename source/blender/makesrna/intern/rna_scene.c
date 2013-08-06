@@ -41,7 +41,8 @@
 #include "BLF_translation.h"
 
 #include "BKE_freestyle.h"
-#include "BKE_tessmesh.h"
+#include "BKE_editmesh.h"
+#include "BKE_paint.h"
 
 #include "RNA_define.h"
 #include "RNA_enum_types.h"
@@ -119,6 +120,8 @@ EnumPropertyItem proportional_falloff_curve_only_items[] = {
 EnumPropertyItem proportional_editing_items[] = {
 	{PROP_EDIT_OFF, "DISABLED", ICON_PROP_OFF, "Disable", "Proportional Editing disabled"},
 	{PROP_EDIT_ON, "ENABLED", ICON_PROP_ON, "Enable", "Proportional Editing enabled"},
+	{PROP_EDIT_PROJECTED, "PROJECTED", ICON_PROP_ON, "Projected (2D)",
+	                      "Proportional Editing using screen space locations"},
 	{PROP_EDIT_CONNECTED, "CONNECTED", ICON_PROP_CON, "Connected",
 	                      "Proportional Editing using connected geometry only"},
 	{0, NULL, 0, NULL, NULL}
@@ -452,6 +455,9 @@ static void rna_Scene_set_set(PointerRNA *ptr, PointerRNA value)
 	for (nested_set = set; nested_set; nested_set = nested_set->set) {
 		if (nested_set == scene)
 			return;
+		/* prevent eternal loops, set can point to next, and next to set, without problems usually */
+		if (nested_set->set == set)
+			return;
 	}
 
 	scene->set = set;
@@ -517,6 +523,13 @@ static void rna_Scene_frame_current_set(PointerRNA *ptr, int value)
 	/* if negative frames aren't allowed, then we can't use them */
 	FRAMENUMBER_MIN_CLAMP(value);
 	data->r.cfra = value;
+}
+
+static float rna_Scene_frame_current_final_get(PointerRNA *ptr)
+{
+	Scene *scene = (Scene *)ptr->data;
+
+	return BKE_scene_frame_get_from_ctime(scene, (float)scene->r.cfra);
 }
 
 static void rna_Scene_start_frame_set(PointerRNA *ptr, int value)
@@ -670,11 +683,18 @@ static char *rna_RenderSettings_path(PointerRNA *UNUSED(ptr))
 static int rna_RenderSettings_threads_get(PointerRNA *ptr)
 {
 	RenderData *rd = (RenderData *)ptr->data;
+	return BKE_render_num_threads(rd);
+}
 
-	if (rd->mode & R_FIXED_THREADS)
-		return rd->threads;
+static int rna_RenderSettings_threads_mode_get(PointerRNA *ptr)
+{
+	RenderData *rd = (RenderData *)ptr->data;
+	int override = BLI_system_num_threads_override_get();
+
+	if (override > 0)
+		return R_FIXED_THREADS;
 	else
-		return BLI_system_thread_count();
+		return (rd->mode & R_FIXED_THREADS);
 }
 
 static int rna_RenderSettings_is_movie_fomat_get(PointerRNA *ptr)
@@ -686,10 +706,14 @@ static int rna_RenderSettings_is_movie_fomat_get(PointerRNA *ptr)
 static int rna_RenderSettings_save_buffers_get(PointerRNA *ptr)
 {
 	RenderData *rd = (RenderData *)ptr->data;
+	Scene *scene = (Scene *)ptr->id.data;
+	
 	if (rd->mode & R_BORDER)
 		return 0;
-	else
+	else if (!BKE_scene_use_new_shading_nodes(scene))
 		return (rd->scemode & (R_EXR_TILE_FILE | R_FULL_SAMPLE)) != 0;
+	else 
+		return (rd->scemode & R_EXR_TILE_FILE);
 }
 
 static int rna_RenderSettings_full_sample_get(PointerRNA *ptr)
@@ -1114,6 +1138,10 @@ static void rna_SceneRenderLayer_name_set(PointerRNA *ptr, const char *value)
 {
 	Scene *scene = (Scene *)ptr->id.data;
 	SceneRenderLayer *rl = (SceneRenderLayer *)ptr->data;
+	char oldname[sizeof(rl->name)];
+
+	BLI_strncpy(oldname, rl->name, sizeof(rl->name));
+
 	BLI_strncpy_utf8(rl->name, value, sizeof(rl->name));
 	BLI_uniquename(&scene->r.layers, rl, DATA_("RenderLayer"), '.', offsetof(SceneRenderLayer, name), sizeof(rl->name));
 
@@ -1128,12 +1156,18 @@ static void rna_SceneRenderLayer_name_set(PointerRNA *ptr, const char *value)
 			}
 		}
 	}
+
+	/* fix all the animation data which may link to this */
+	BKE_all_animdata_fix_paths_rename(NULL, "render.layers", oldname, rl->name);
 }
 
 static char *rna_SceneRenderLayer_path(PointerRNA *ptr)
 {
 	SceneRenderLayer *srl = (SceneRenderLayer *)ptr->data;
-	return BLI_sprintfN("render.layers[\"%s\"]", srl->name);
+	char name_esc[sizeof(srl->name) * 2];
+
+	BLI_strescape(name_esc, srl->name, sizeof(name_esc));
+	return BLI_sprintfN("render.layers[\"%s\"]", name_esc);
 }
 
 static int rna_RenderSettings_multiple_engines_get(PointerRNA *UNUSED(ptr))
@@ -1170,7 +1204,7 @@ static void rna_SceneRenderLayer_pass_update(Main *bmain, Scene *activescene, Po
 	Scene *scene = (Scene *)ptr->id.data;
 
 	if (scene->nodetree)
-		ntreeCompositForceHidden(scene->nodetree, scene);
+		ntreeCompositForceHidden(scene->nodetree);
 	
 	rna_Scene_glsl_update(bmain, activescene, ptr);
 }
@@ -1230,6 +1264,12 @@ static void object_simplify_update(Object *ob)
 	ModifierData *md;
 	ParticleSystem *psys;
 
+	if ((ob->id.flag & LIB_DOIT) == 0) {
+		return;
+	}
+
+	ob->id.flag &= ~LIB_DOIT;
+
 	for (md = ob->modifiers.first; md; md = md->next) {
 		if (ELEM3(md->type, eModifierType_Subsurf, eModifierType_Multires, eModifierType_ParticleSystem)) {
 			ob->recalc |= PSYS_RECALC_CHILD;
@@ -1254,6 +1294,7 @@ static void rna_Scene_use_simplify_update(Main *bmain, Scene *UNUSED(scene), Poi
 	Scene *sce_iter;
 	Base *base;
 
+	tag_main_lb(&bmain->object, TRUE);
 	for (SETLOOPER(sce, sce_iter, base))
 		object_simplify_update(base->object);
 	
@@ -1417,9 +1458,37 @@ static void rna_UnifiedPaintSettings_unprojected_radius_set(PointerRNA *ptr, flo
 	ups->unprojected_radius = value;
 }
 
+static void rna_UnifiedPaintSettings_radius_update(Main *bmain, Scene *scene, PointerRNA *ptr)
+{
+	/* changing the unified size should invalidate */
+	BKE_paint_invalidate_overlay_all();
+}
+
 static char *rna_UnifiedPaintSettings_path(PointerRNA *ptr)
 {
 	return BLI_strdup("tool_settings.unified_paint_settings");
+}
+
+/* generic function to recalc geometry */
+static void rna_EditMesh_update(Main *UNUSED(bmain), Scene *scene, PointerRNA *UNUSED(ptr))
+{
+	Mesh *me = NULL;
+
+	if (scene->basact) {
+		me = BKE_mesh_from_object(scene->basact->object);
+		if (me && me->edit_btmesh == NULL)
+			me = NULL;
+	}
+
+	if (me) {
+		DAG_id_tag_update(&me->id, OB_RECALC_DATA);
+		WM_main_add_notifier(NC_GEOM | ND_DATA, me);
+	}
+}
+
+static char *rna_MeshStatVis_path(PointerRNA *ptr)
+{
+	return BLI_strdup("tool_settings.statvis");
 }
 
 /* note: without this, when Multi-Paint is activated/deactivated, the colors
@@ -1578,6 +1647,14 @@ static void rna_def_tool_settings(BlenderRNA  *brna)
 		{0, NULL, 0, NULL, NULL}
 	};
 
+	static EnumPropertyItem vertex_group_select_items[] = {
+		{WT_VGROUP_ALL, "ALL", 0, "All", "All Vertex Groups"},
+		{WT_VGROUP_BONE_DEFORM, "BONE_DEFORM", 0, "Deform", "Vertex Groups assigned to Deform Bones"},
+		{WT_VGROUP_BONE_DEFORM_OFF, "OTHER_DEFORM", 0, "Other", "Vertex Groups assigned to non Deform Bones"},
+		{0, NULL, 0, NULL, NULL}
+	};
+
+
 	srna = RNA_def_struct(brna, "ToolSettings", NULL);
 	RNA_def_struct_path_func(srna, "rna_ToolSettings_path");
 	RNA_def_struct_ui_text(srna, "Tool Settings", "");
@@ -1606,10 +1683,14 @@ static void rna_def_tool_settings(BlenderRNA  *brna)
 	RNA_def_property_ui_text(prop, "Mask Non-Group Vertices", "Display unweighted vertices (multi-paint overrides)");
 	RNA_def_property_update(prop, 0, "rna_Scene_update_active_object_data");
 
+	prop = RNA_def_property(srna, "vertex_group_subset", PROP_ENUM, PROP_NONE);
+	RNA_def_property_enum_sdna(prop, NULL, "vgroupsubset");
+	RNA_def_property_enum_items(prop, vertex_group_select_items);
+	RNA_def_property_ui_text(prop, "Subset", "Filter Vertex groups for Display");
+	RNA_def_property_update(prop, 0, "rna_Scene_update_active_object_data");
 
 	prop = RNA_def_property(srna, "vertex_paint", PROP_POINTER, PROP_NONE);
-	RNA_def_property_pointer_sdna(prop, NULL, "vpaint");
-	RNA_def_property_ui_text(prop, "Vertex Paint", "");
+	RNA_def_property_pointer_sdna(prop, NULL, "vpaint");	RNA_def_property_ui_text(prop, "Vertex Paint", "");
 
 	prop = RNA_def_property(srna, "weight_paint", PROP_POINTER, PROP_NONE);
 	RNA_def_property_pointer_sdna(prop, NULL, "wpaint");
@@ -1698,6 +1779,7 @@ static void rna_def_tool_settings(BlenderRNA  *brna)
 	prop = RNA_def_property(srna, "use_mesh_automerge", PROP_BOOLEAN, PROP_NONE);
 	RNA_def_property_boolean_sdna(prop, NULL, "automerge", 0);
 	RNA_def_property_ui_text(prop, "AutoMerge Editing", "Automatically merge vertices moved to the same location");
+	RNA_def_property_update(prop, NC_SCENE | ND_TOOLSETTINGS, NULL); /* header redraw */
 
 	prop = RNA_def_property(srna, "use_snap", PROP_BOOLEAN, PROP_NONE);
 	RNA_def_property_boolean_sdna(prop, NULL, "snap_flag", SCE_SNAP);
@@ -1816,7 +1898,7 @@ static void rna_def_tool_settings(BlenderRNA  *brna)
 	RNA_def_property_float_sdna(prop, NULL, "vgroup_weight");
 	RNA_def_property_ui_text(prop, "Vertex Group Weight", "Weight to assign in vertex groups");
 
-	/* use with MESH_OT_select_shortest_path */
+	/* use with MESH_OT_shortest_path_pick */
 	prop = RNA_def_property(srna, "edge_path_mode", PROP_ENUM, PROP_NONE);
 	RNA_def_property_enum_sdna(prop, NULL, "edge_mode");
 	RNA_def_property_enum_items(prop, edge_tag_items);
@@ -1896,6 +1978,12 @@ static void rna_def_tool_settings(BlenderRNA  *brna)
 	RNA_def_property_flag(prop, PROP_NEVER_NULL);
 	RNA_def_property_struct_type(prop, "UnifiedPaintSettings");
 	RNA_def_property_ui_text(prop, "Unified Paint Settings", NULL);
+
+	/* Mesh Statistics */
+	prop = RNA_def_property(srna, "statvis", PROP_POINTER, PROP_NONE);
+	RNA_def_property_flag(prop, PROP_NEVER_NULL);
+	RNA_def_property_struct_type(prop, "MeshStatVis");
+	RNA_def_property_ui_text(prop, "Mesh Statistics Visualization", NULL);
 }
 
 static void rna_def_unified_paint_settings(BlenderRNA  *brna)
@@ -1930,12 +2018,14 @@ static void rna_def_unified_paint_settings(BlenderRNA  *brna)
 	RNA_def_property_range(prop, 1, MAX_BRUSH_PIXEL_RADIUS * 10);
 	RNA_def_property_ui_range(prop, 1, MAX_BRUSH_PIXEL_RADIUS, 1, -1);
 	RNA_def_property_ui_text(prop, "Radius", "Radius of the brush in pixels");
+	RNA_def_property_update(prop, 0, "rna_UnifiedPaintSettings_radius_update");
 
 	prop = RNA_def_property(srna, "unprojected_radius", PROP_FLOAT, PROP_DISTANCE);
 	RNA_def_property_float_funcs(prop, NULL, "rna_UnifiedPaintSettings_unprojected_radius_set", NULL);
 	RNA_def_property_range(prop, 0.001, FLT_MAX);
 	RNA_def_property_ui_range(prop, 0.001, 1, 0, -1);
 	RNA_def_property_ui_text(prop, "Unprojected Radius", "Radius of brush in Blender units");
+	RNA_def_property_update(prop, 0, "rna_UnifiedPaintSettings_radius_update");
 
 	prop = RNA_def_property(srna, "strength", PROP_FLOAT, PROP_FACTOR);
 	RNA_def_property_float_sdna(prop, NULL, "alpha");
@@ -1966,6 +2056,111 @@ static void rna_def_unified_paint_settings(BlenderRNA  *brna)
 	RNA_def_property_ui_text(prop, "Use Blender Units",
 	                         "When locked brush stays same size relative to object; "
 	                         "when unlocked brush size is given in pixels");
+}
+
+static void rna_def_statvis(BlenderRNA  *brna)
+{
+	StructRNA *srna;
+	PropertyRNA *prop;
+
+	static EnumPropertyItem stat_type[] = {
+		{SCE_STATVIS_OVERHANG,  "OVERHANG",  0, "Overhang",  ""},
+		{SCE_STATVIS_THICKNESS, "THICKNESS", 0, "Thickness", ""},
+		{SCE_STATVIS_INTERSECT, "INTERSECT", 0, "Intersect", ""},
+		{SCE_STATVIS_DISTORT,   "DISTORT",   0, "Distort", ""},
+	    {SCE_STATVIS_SHARP, "SHARP", 0, "Sharp", ""},
+		{0, NULL, 0, NULL, NULL}};
+
+	srna = RNA_def_struct(brna, "MeshStatVis", NULL);
+	RNA_def_struct_path_func(srna, "rna_MeshStatVis_path");
+	RNA_def_struct_ui_text(srna, "Mesh Visualize Statistics", "");
+
+	prop = RNA_def_property(srna, "type", PROP_ENUM, PROP_NONE);
+	RNA_def_property_enum_items(prop, stat_type);
+	RNA_def_property_ui_text(prop, "Type", "XXX");
+	RNA_def_property_update(prop, 0, "rna_EditMesh_update");
+
+
+	/* overhang */
+	prop = RNA_def_property(srna, "overhang_min", PROP_FLOAT, PROP_ANGLE);
+	RNA_def_property_float_sdna(prop, NULL, "overhang_min");
+	RNA_def_property_float_default(prop, 0.5f);
+	RNA_def_property_range(prop, 0.0f, DEG2RADF(180.0f));
+	RNA_def_property_ui_range(prop, 0.0f, DEG2RADF(180.0f), 0.001, 3);
+	RNA_def_property_ui_text(prop, "Overhang Min", "Minimum angle to display");
+	RNA_def_property_update(prop, 0, "rna_EditMesh_update");
+
+	prop = RNA_def_property(srna, "overhang_max", PROP_FLOAT, PROP_ANGLE);
+	RNA_def_property_float_sdna(prop, NULL, "overhang_max");
+	RNA_def_property_float_default(prop, 0.5f);
+	RNA_def_property_range(prop, 0.0f, DEG2RADF(180.0f));
+	RNA_def_property_ui_range(prop, 0.0f, DEG2RADF(180.0f), 0.001, 3);
+	RNA_def_property_ui_text(prop, "Overhang Max", "Maximum angle to display");
+	RNA_def_property_update(prop, 0, "rna_EditMesh_update");
+
+	prop = RNA_def_property(srna, "overhang_axis", PROP_ENUM, PROP_NONE);
+	RNA_def_property_enum_sdna(prop, NULL, "overhang_axis");
+	RNA_def_property_enum_items(prop, object_axis_items);
+	RNA_def_property_ui_text(prop, "Axis", "");
+	RNA_def_property_update(prop, 0, "rna_EditMesh_update");
+
+
+	/* thickness */
+	prop = RNA_def_property(srna, "thickness_min", PROP_FLOAT, PROP_DISTANCE);
+	RNA_def_property_float_sdna(prop, NULL, "thickness_min");
+	RNA_def_property_float_default(prop, 0.5f);
+	RNA_def_property_range(prop, 0.0f, 1000.0);
+	RNA_def_property_ui_range(prop, 0.0f, 100.0, 0.001, 3);
+	RNA_def_property_ui_text(prop, "Thickness Min", "Minimum for measuring thickness");
+	RNA_def_property_update(prop, 0, "rna_EditMesh_update");
+
+	prop = RNA_def_property(srna, "thickness_max", PROP_FLOAT, PROP_DISTANCE);
+	RNA_def_property_float_sdna(prop, NULL, "thickness_max");
+	RNA_def_property_float_default(prop, 0.5f);
+	RNA_def_property_range(prop, 0.0f, 1000.0);
+	RNA_def_property_ui_range(prop, 0.0f, 100.0, 0.001, 3);
+	RNA_def_property_ui_text(prop, "Thickness Max", "Maximum for measuring thickness");
+	RNA_def_property_update(prop, 0, "rna_EditMesh_update");
+
+	prop = RNA_def_property(srna, "thickness_samples", PROP_INT, PROP_UNSIGNED);
+	RNA_def_property_int_sdna(prop, NULL, "thickness_samples");
+	RNA_def_property_range(prop, 1, 32);
+	RNA_def_property_ui_text(prop, "Samples", "Number of samples to test per face");
+	RNA_def_property_update(prop, 0, "rna_EditMesh_update");
+
+	/* distort */
+	prop = RNA_def_property(srna, "distort_min", PROP_FLOAT, PROP_ANGLE);
+	RNA_def_property_float_sdna(prop, NULL, "distort_min");
+	RNA_def_property_float_default(prop, 0.5f);
+	RNA_def_property_range(prop, 0.0f, DEG2RADF(180.0f));
+	RNA_def_property_ui_range(prop, 0.0f, DEG2RADF(180.0f), 0.001, 3);
+	RNA_def_property_ui_text(prop, "Distort Min", "Minimum angle to display");
+	RNA_def_property_update(prop, 0, "rna_EditMesh_update");
+
+	prop = RNA_def_property(srna, "distort_max", PROP_FLOAT, PROP_ANGLE);
+	RNA_def_property_float_sdna(prop, NULL, "distort_max");
+	RNA_def_property_float_default(prop, 0.5f);
+	RNA_def_property_range(prop, 0.0f, DEG2RADF(180.0f));
+	RNA_def_property_ui_range(prop, 0.0f, DEG2RADF(180.0f), 0.001, 3);
+	RNA_def_property_ui_text(prop, "Distort Max", "Maximum angle to display");
+	RNA_def_property_update(prop, 0, "rna_EditMesh_update");
+
+	/* sharp */
+	prop = RNA_def_property(srna, "sharp_min", PROP_FLOAT, PROP_ANGLE);
+	RNA_def_property_float_sdna(prop, NULL, "sharp_min");
+	RNA_def_property_float_default(prop, 0.5f);
+	RNA_def_property_range(prop, -DEG2RADF(180.0f), DEG2RADF(180.0f));
+	RNA_def_property_ui_range(prop, -DEG2RADF(180.0f), DEG2RADF(180.0f), 0.001, 3);
+	RNA_def_property_ui_text(prop, "Distort Min", "Minimum angle to display");
+	RNA_def_property_update(prop, 0, "rna_EditMesh_update");
+
+	prop = RNA_def_property(srna, "sharp_max", PROP_FLOAT, PROP_ANGLE);
+	RNA_def_property_float_sdna(prop, NULL, "sharp_max");
+	RNA_def_property_float_default(prop, 0.5f);
+	RNA_def_property_range(prop, -DEG2RADF(180.0f), DEG2RADF(180.0f));
+	RNA_def_property_ui_range(prop, -DEG2RADF(180.0f), DEG2RADF(180.0f), 0.001, 3);
+	RNA_def_property_ui_text(prop, "Distort Max", "Maximum angle to display");
+	RNA_def_property_update(prop, 0, "rna_EditMesh_update");
 }
 
 static void rna_def_unit_settings(BlenderRNA  *brna)
@@ -2358,6 +2553,24 @@ void rna_def_render_layer_common(StructRNA *srna, int scene)
 	prop = RNA_def_property(srna, "use_pass_transmission_color", PROP_BOOLEAN, PROP_NONE);
 	RNA_def_property_boolean_sdna(prop, NULL, "passflag", SCE_PASS_TRANSM_COLOR);
 	RNA_def_property_ui_text(prop, "Transmission Color", "Deliver transmission color pass");
+	if (scene) RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, "rna_SceneRenderLayer_pass_update");
+	else RNA_def_property_clear_flag(prop, PROP_EDITABLE);
+	
+	prop = RNA_def_property(srna, "use_pass_subsurface_direct", PROP_BOOLEAN, PROP_NONE);
+	RNA_def_property_boolean_sdna(prop, NULL, "passflag", SCE_PASS_SUBSURFACE_DIRECT);
+	RNA_def_property_ui_text(prop, "Subsurface Direct", "Deliver subsurface direct pass");
+	if (scene) RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, "rna_SceneRenderLayer_pass_update");
+	else RNA_def_property_clear_flag(prop, PROP_EDITABLE);
+
+	prop = RNA_def_property(srna, "use_pass_subsurface_indirect", PROP_BOOLEAN, PROP_NONE);
+	RNA_def_property_boolean_sdna(prop, NULL, "passflag", SCE_PASS_SUBSURFACE_INDIRECT);
+	RNA_def_property_ui_text(prop, "Subsurface Indirect", "Deliver subsurface indirect pass");
+	if (scene) RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, "rna_SceneRenderLayer_pass_update");
+	else RNA_def_property_clear_flag(prop, PROP_EDITABLE);
+
+	prop = RNA_def_property(srna, "use_pass_subsurface_color", PROP_BOOLEAN, PROP_NONE);
+	RNA_def_property_boolean_sdna(prop, NULL, "passflag", SCE_PASS_SUBSURFACE_COLOR);
+	RNA_def_property_ui_text(prop, "Subsurface Color", "Deliver subsurface color pass");
 	if (scene) RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, "rna_SceneRenderLayer_pass_update");
 	else RNA_def_property_clear_flag(prop, PROP_EDITABLE);
 }
@@ -2931,6 +3144,13 @@ static void rna_def_scene_game_data(BlenderRNA *brna)
 		{0, NULL, 0, NULL, NULL}
 	};
 
+	static EnumPropertyItem vsync_items[] = {
+		{VSYNC_OFF, "OFF", 0, "Off", "Disables vsync"},
+		{VSYNC_ON, "ON", 0, "On", "Enables vsync"},
+		{VSYNC_ADAPTIVE, "ADAPTIVE", 0, "Adaptive", "Enables adaptive vsync (if supported)"},
+		{0, NULL, 0, NULL, NULL}
+	};
+
 	static EnumPropertyItem storage_items[] = {
 		{RAS_STORE_AUTO, "AUTO", 0, "Auto Select", "Chooses the best supported mode"},
 		{RAS_STORE_IMMEDIATE, "IMMEDIATE", 0, "Immediate Mode", "Slowest performance, requires OpenGL (any version)"},
@@ -2957,6 +3177,11 @@ static void rna_def_scene_game_data(BlenderRNA *brna)
 	RNA_def_property_range(prop, 4, 10000);
 	RNA_def_property_ui_text(prop, "Resolution Y", "Number of vertical pixels in the screen");
 	RNA_def_property_update(prop, NC_SCENE, NULL);
+
+	prop = RNA_def_property(srna, "vsync", PROP_ENUM, PROP_NONE);
+	RNA_def_property_enum_sdna(prop, NULL, "vsync");
+	RNA_def_property_enum_items(prop, vsync_items);
+	RNA_def_property_ui_text(prop, "Vsync", "Change vsync settings");
 	
 	prop = RNA_def_property(srna, "samples", PROP_ENUM, PROP_NONE);
 	RNA_def_property_enum_sdna(prop, NULL, "aasamples");
@@ -3218,7 +3443,7 @@ static void rna_def_scene_game_data(BlenderRNA *brna)
 	RNA_def_property_boolean_funcs(prop, "rna_GameSettings_auto_start_get", "rna_GameSettings_auto_start_set");
 	RNA_def_property_ui_text(prop, "Auto Start", "Automatically start game at load time");
 
-	prop = RNA_def_property(srna, "restrict_animation_updates", PROP_BOOLEAN, PROP_NONE);
+	prop = RNA_def_property(srna, "use_restrict_animation_updates", PROP_BOOLEAN, PROP_NONE);
 	RNA_def_property_boolean_sdna(prop, NULL, "flag", GAME_RESTRICT_ANIM_UPDATES);
 	RNA_def_property_ui_text(prop, "Restrict Animation Updates",
 	                         "Restrict the number of animation updates to the animation FPS (this is "
@@ -3324,7 +3549,7 @@ static void rna_def_scene_render_layer(BlenderRNA *brna)
 	RNA_def_property_ui_text(prop, "Freestyle Settings", "");
 }
 
-/* curve.splines */
+/* Render Layers */
 static void rna_def_render_layers(BlenderRNA *brna, PropertyRNA *cprop)
 {
 	StructRNA *srna;
@@ -3357,7 +3582,7 @@ static void rna_def_render_layers(BlenderRNA *brna, PropertyRNA *cprop)
 	func = RNA_def_function(srna, "new", "rna_RenderLayer_new");
 	RNA_def_function_ui_description(func, "Add a render layer to scene");
 	RNA_def_function_flag(func, FUNC_USE_SELF_ID);
-	parm = RNA_def_string(func, "name", "RenderLayer", 0, "", "New name for the marker (not unique)");
+	parm = RNA_def_string(func, "name", "RenderLayer", 0, "", "New name for the render layer (not unique)");
 	RNA_def_property_flag(parm, PROP_REQUIRED);
 	parm = RNA_def_pointer(func, "result", "SceneRenderLayer", "", "Newly created render layer");
 	RNA_def_function_return(func, parm);
@@ -3365,7 +3590,7 @@ static void rna_def_render_layers(BlenderRNA *brna, PropertyRNA *cprop)
 	func = RNA_def_function(srna, "remove", "rna_RenderLayer_remove");
 	RNA_def_function_ui_description(func, "Remove a render layer");
 	RNA_def_function_flag(func, FUNC_USE_MAIN | FUNC_USE_REPORTS | FUNC_USE_SELF_ID);
-	parm = RNA_def_pointer(func, "layer", "SceneRenderLayer", "", "Timeline marker to remove");
+	parm = RNA_def_pointer(func, "layer", "SceneRenderLayer", "", "Render layer to remove");
 	RNA_def_property_flag(parm, PROP_REQUIRED | PROP_NEVER_NULL | PROP_RNAPTR);
 	RNA_def_property_clear_flag(parm, PROP_THICK_WRAP);
 }
@@ -4178,6 +4403,7 @@ static void rna_def_scene_render_data(BlenderRNA *brna)
 	prop = RNA_def_property(srna, "threads_mode", PROP_ENUM, PROP_NONE);
 	RNA_def_property_enum_bitflag_sdna(prop, NULL, "mode");
 	RNA_def_property_enum_items(prop, threads_mode_items);
+	RNA_def_property_enum_funcs(prop, "rna_RenderSettings_threads_mode_get", NULL, NULL);
 	RNA_def_property_ui_text(prop, "Threads Mode", "Determine the amount of render threads used");
 	RNA_def_property_update(prop, NC_SCENE | ND_RENDER_OPTIONS, NULL);
 	
@@ -4960,6 +5186,13 @@ void RNA_def_scene(BlenderRNA *brna)
 	                         "Number of frames to skip forward while rendering/playing back each frame");
 	RNA_def_property_update(prop, NC_SCENE | ND_FRAME, NULL);
 	
+	prop = RNA_def_property(srna, "frame_current_final", PROP_FLOAT, PROP_TIME);
+	RNA_def_property_clear_flag(prop, PROP_ANIMATABLE | PROP_EDITABLE);
+	RNA_def_property_range(prop, MINAFRAME, MAXFRAME);
+	RNA_def_property_float_funcs(prop, "rna_Scene_frame_current_final_get", NULL, NULL);
+	RNA_def_property_ui_text(prop, "Current Frame Final",
+	                         "Current frame with subframe and time remapping applied");
+
 	/* Preview Range (frame-range for UI playback) */
 	prop = RNA_def_property(srna, "use_preview_range", PROP_BOOLEAN, PROP_NONE);
 	RNA_def_property_clear_flag(prop, PROP_ANIMATABLE);
@@ -5207,6 +5440,7 @@ void RNA_def_scene(BlenderRNA *brna)
 	RNA_define_animate_sdna(false);
 	rna_def_tool_settings(brna);
 	rna_def_unified_paint_settings(brna);
+	rna_def_statvis(brna);
 	rna_def_unit_settings(brna);
 	rna_def_scene_image_format_data(brna);
 	rna_def_scene_game_data(brna);

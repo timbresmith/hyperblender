@@ -568,7 +568,7 @@ void material_append_id(ID *id, Material *ma)
 		(*matar)[(*totcol)++] = ma;
 
 		id_us_plus((ID *)ma);
-		test_object_materials(id);
+		test_object_materials(G.main, id);
 	}
 }
 
@@ -601,7 +601,7 @@ Material *material_pop_id(ID *id, int index_i, int remove_material_slot)
 					MEM_freeN(*matar);
 
 					*matar = mat;
-					test_object_materials(id);
+					test_object_materials(G.main, id);
 				}
 
 				/* decrease mat_nr index */
@@ -712,7 +712,7 @@ void resize_object_material(Object *ob, const short totcol)
 	if (ob->actcol > ob->totcol) ob->actcol = ob->totcol;
 }
 
-void test_object_materials(ID *id)
+void test_object_materials(Main *bmain, ID *id)
 {
 	/* make the ob mat-array same size as 'ob->data' mat-array */
 	Object *ob;
@@ -722,7 +722,7 @@ void test_object_materials(ID *id)
 		return;
 	}
 
-	for (ob = G.main->object.first; ob; ob = ob->id.next) {
+	for (ob = bmain->object.first; ob; ob = ob->id.next) {
 		if (ob->data == id) {
 			resize_object_material(ob, *totcol);
 		}
@@ -768,7 +768,7 @@ void assign_material_id(ID *id, Material *ma, short act)
 	if (ma)
 		id_us_plus((ID *)ma);
 
-	test_object_materials(id);
+	test_object_materials(G.main, id);
 }
 
 void assign_material(Object *ob, Material *ma, short act, int assign_type)
@@ -855,7 +855,7 @@ void assign_material(Object *ob, Material *ma, short act, int assign_type)
 
 	if (ma)
 		id_us_plus((ID *)ma);
-	test_object_materials(ob->data);
+	test_object_materials(G.main, ob->data);
 }
 
 /* XXX - this calls many more update calls per object then are needed, could be optimized */
@@ -1133,8 +1133,8 @@ void material_drivers_update(Scene *scene, Material *ma, float ctime)
 	 */
 	if (ma->id.flag & LIB_DOIT)
 		return;
-	else
-		ma->id.flag |= LIB_DOIT;
+
+	ma->id.flag |= LIB_DOIT;
 	
 	/* material itself */
 	if (ma->adt && ma->adt->drivers.first) {
@@ -1145,56 +1145,9 @@ void material_drivers_update(Scene *scene, Material *ma, float ctime)
 	if (ma->nodetree) {
 		material_node_drivers_update(scene, ma->nodetree, ctime);
 	}
-}
-	
-/* ****************** */
-#if 0 /* UNUSED */
-static char colname_array[125][20] = {
-"Black", "DarkRed", "HalfRed", "Red", "Red",
-"DarkGreen", "DarkOlive", "Brown", "Chocolate", "OrangeRed",
-"HalfGreen", "GreenOlive", "DryOlive", "Goldenrod", "DarkOrange",
-"LightGreen", "Chartreuse", "YellowGreen", "Yellow", "Gold",
-"Green", "LawnGreen", "GreenYellow", "LightOlive", "Yellow",
-"DarkBlue", "DarkPurple", "HotPink", "VioletPink", "RedPink",
-"SlateGray", "DarkGray", "PalePurple", "IndianRed", "Tomato",
-"SeaGreen", "PaleGreen", "GreenKhaki", "LightBrown", "LightSalmon",
-"SpringGreen", "PaleGreen", "MediumOlive", "YellowBrown", "LightGold",
-"LightGreen", "LightGreen", "LightGreen", "GreenYellow", "PaleYellow",
-"HalfBlue", "DarkSky", "HalfMagenta", "VioletRed", "DeepPink",
-"SteelBlue", "SkyBlue", "Orchid", "LightHotPink", "HotPink",
-"SeaGreen", "SlateGray", "MediumGray", "Burlywood", "LightPink",
-"SpringGreen", "Aquamarine", "PaleGreen", "Khaki", "PaleOrange",
-"SpringGreen", "SeaGreen", "PaleGreen", "PaleWhite", "YellowWhite",
-"LightBlue", "Purple", "MediumOrchid", "Magenta", "Magenta",
-"RoyalBlue", "SlateBlue", "MediumOrchid", "Orchid", "Magenta",
-"DeepSkyBlue", "LightSteelBlue", "LightSkyBlue", "Violet", "LightPink",
-"Cyan", "DarkTurquoise", "SkyBlue", "Gray", "Snow",
-"Mint", "Mint", "Aquamarine", "MintCream", "Ivory",
-"Blue", "Blue", "DarkMagenta", "DarkOrchid", "Magenta",
-"SkyBlue", "RoyalBlue", "LightSlateBlue", "MediumOrchid", "Magenta",
-"DodgerBlue", "SteelBlue", "MediumPurple", "PalePurple", "Plum",
-"DeepSkyBlue", "PaleBlue", "LightSkyBlue", "PalePurple", "Thistle",
-"Cyan", "ColdBlue", "PaleTurquoise", "GhostWhite", "White"
-};
 
-void automatname(Material *ma)
-{
-	int nr, r, g, b;
-	float ref;
-	
-	if (ma == NULL) return;
-	if (ma->mode & MA_SHLESS) ref = 1.0;
-	else ref = ma->ref;
-
-	r = (int)(4.99f * (ref * ma->r));
-	g = (int)(4.99f * (ref * ma->g));
-	b = (int)(4.99f * (ref * ma->b));
-	nr = r + 5 * g + 25 * b;
-	if (nr > 124) nr = 124;
-	new_id(&G.main->mat, (ID *)ma, colname_array[nr]);
-	
+	ma->id.flag &= ~LIB_DOIT;
 }
-#endif
 
 int object_remove_material_slot(Object *ob)
 {
@@ -1223,7 +1176,9 @@ int object_remove_material_slot(Object *ob)
 	totcolp = give_totcolp(ob);
 	matarar = give_matarar(ob);
 
-	if (*matarar == NULL) return FALSE;
+	if (ELEM(NULL, matarar, *matarar)) {
+		return false;
+	}
 
 	/* can happen on face selection in editmode */
 	if (ob->actcol > ob->totcol) {
@@ -1428,8 +1383,8 @@ void ramp_blend(int type, float r_col[3], const float fac, const float col[3])
 				r_col[1] = facm * (r_col[1]) + fac * tmpg;
 				r_col[2] = facm * (r_col[2]) + fac * tmpb;
 			}
+			break;
 		}
-		break;
 		case MA_RAMP_SAT:
 		{
 			float rH, rS, rV;
@@ -1439,8 +1394,8 @@ void ramp_blend(int type, float r_col[3], const float fac, const float col[3])
 				rgb_to_hsv(col[0], col[1], col[2], &colH, &colS, &colV);
 				hsv_to_rgb(rH, (facm * rS + fac * colS), rV, r_col + 0, r_col + 1, r_col + 2);
 			}
+			break;
 		}
-		break;
 		case MA_RAMP_VAL:
 		{
 			float rH, rS, rV;
@@ -1448,8 +1403,8 @@ void ramp_blend(int type, float r_col[3], const float fac, const float col[3])
 			rgb_to_hsv(r_col[0], r_col[1], r_col[2], &rH, &rS, &rV);
 			rgb_to_hsv(col[0], col[1], col[2], &colH, &colS, &colV);
 			hsv_to_rgb(rH, rS, (facm * rV + fac * colV), r_col + 0, r_col + 1, r_col + 2);
+			break;
 		}
-		break;
 		case MA_RAMP_COLOR:
 		{
 			float rH, rS, rV;
@@ -1463,8 +1418,8 @@ void ramp_blend(int type, float r_col[3], const float fac, const float col[3])
 				r_col[1] = facm * (r_col[1]) + fac * tmpg;
 				r_col[2] = facm * (r_col[2]) + fac * tmpb;
 			}
+			break;
 		}
-		break;
 		case MA_RAMP_SOFT:
 		{
 			float scr, scg, scb;
@@ -1477,8 +1432,8 @@ void ramp_blend(int type, float r_col[3], const float fac, const float col[3])
 			r_col[0] = facm * (r_col[0]) + fac * (((1.0f - r_col[0]) * col[0] * (r_col[0])) + (r_col[0] * scr));
 			r_col[1] = facm * (r_col[1]) + fac * (((1.0f - r_col[1]) * col[1] * (r_col[1])) + (r_col[1] * scg));
 			r_col[2] = facm * (r_col[2]) + fac * (((1.0f - r_col[2]) * col[2] * (r_col[2])) + (r_col[2] * scb));
+			break;
 		}
-		break;
 		case MA_RAMP_LINEAR:
 			if (col[0] > 0.5f)
 				r_col[0] = r_col[0] + fac * (2.0f * (col[0] - 0.5f));
@@ -1595,7 +1550,15 @@ void paste_matcopybuf(Material *ma)
 		mtex = ma->mtex[a];
 		if (mtex) {
 			ma->mtex[a] = MEM_dupallocN(mtex);
-			if (mtex->tex) id_us_plus((ID *)mtex->tex);
+			if (mtex->tex) {
+				/* first check this is in main (we may have loaded another file) [#35500] */
+				if (BLI_findindex(&G.main->tex, mtex->tex) != -1) {
+					id_us_plus((ID *)mtex->tex);
+				}
+				else {
+					ma->mtex[a]->tex = NULL;
+				}
+			}
 		}
 	}
 
@@ -2041,8 +2004,10 @@ int do_version_tface(Main *main, int fileload)
 				printf("Warning: material \"%s\" skipped - to convert old game texface to material go to the Help menu.\n", ma->id.name + 2);
 				nowarning = 0;
 			}
-			else
-				convert_tfacematerial(main, ma); continue;
+			else {
+				convert_tfacematerial(main, ma);
+			}
+			continue;
 		}
 	
 		/* no conflicts in this material - 90% of cases

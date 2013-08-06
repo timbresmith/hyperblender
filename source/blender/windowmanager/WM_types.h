@@ -302,6 +302,7 @@ typedef struct wmNotifier {
 #define	ND_SHADING			(30<<16)
 #define	ND_SHADING_DRAW		(31<<16)
 #define	ND_SHADING_LINKS	(32<<16)
+#define	ND_SHADING_PREVIEW	(33<<16)
 
 	/* NC_LAMP Lamp */
 #define	ND_LIGHTING			(40<<16)
@@ -380,6 +381,7 @@ typedef struct wmNotifier {
 #define NA_REMOVED			4
 #define NA_RENAME			5
 #define NA_SELECTED			6
+#define NA_PAINTING			7
 
 /* ************** Gesture Manager data ************** */
 
@@ -530,7 +532,7 @@ typedef struct wmOperatorType {
 	 * is changed. It can correct its own properties or report errors for
 	 * invalid settings in exceptional cases.
 	 * Boolean return value, True denotes a change has been made and to redraw */
-	int (*check)(struct bContext *, struct wmOperator *);
+	bool (*check)(struct bContext *, struct wmOperator *);
 
 	/* for modal temporary operators, initially invoke is called. then
 	 * any further events are handled in modal. if the operation is

@@ -48,6 +48,10 @@
 
 #include "../winged_edge/Curvature.h"
 
+#ifdef WITH_CXX_GUARDEDALLOC
+#include "MEM_guardedalloc.h"
+#endif
+
 using namespace std;
 
 namespace Freestyle {
@@ -1664,6 +1668,7 @@ public:
 			FEdgeSmooth *fes = dynamic_cast<FEdgeSmooth*>(ioEdge);
 			se->setNormal(fes->normal());
 			se->setFrsMaterialIndex(fes->frs_materialIndex());
+			se->setFaceMark(fes->faceMark());
 		}
 		else {
 			newEdge = new FEdgeSharp(ioNewVertex, B);
@@ -1673,6 +1678,8 @@ public:
 			se->setNormalB(fes->normalB());
 			se->setaFrsMaterialIndex(fes->aFrsMaterialIndex());
 			se->setbFrsMaterialIndex(fes->bFrsMaterialIndex());
+			se->setaFaceMark(fes->aFaceMark());
+			se->setbFaceMark(fes->bFaceMark());
 		}
 		newEdge->setNature(ioEdge->getNature());
 
@@ -1867,6 +1874,10 @@ public:
 	{
 		_importance = importance;
 	}
+
+#ifdef WITH_CXX_GUARDEDALLOC
+	MEM_CXX_CLASS_ALLOC_FUNCS("Freestyle:SShape")
+#endif
 };
 
 } /* namespace Freestyle */

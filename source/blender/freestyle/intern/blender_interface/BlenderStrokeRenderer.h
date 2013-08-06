@@ -32,6 +32,8 @@ extern "C" {
 #include "DNA_material_types.h"
 #include "DNA_scene_types.h"
 
+#include "BKE_main.h"
+
 #include "render_types.h"
 }
 
@@ -49,9 +51,10 @@ public:
 
 	Object *NewMesh() const;
 
-	Render *RenderScene(Render *re);
+	Render *RenderScene(Render *re, bool render);
 
 protected:
+	Main *freestyle_bmain;
 	Scene *old_scene;
 	Scene *freestyle_scene;
 	Material *material;
@@ -61,6 +64,11 @@ protected:
 
 	float get_stroke_vertex_z(void) const;
 	unsigned int get_stroke_mesh_id(void) const;
+
+#ifdef WITH_CXX_GUARDEDALLOC
+	MEM_CXX_CLASS_ALLOC_FUNCS("Freestyle:BlenderStrokeRenderer")
+#endif
+
 };
 
 } /* namespace Freestyle */

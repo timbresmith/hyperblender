@@ -47,7 +47,7 @@ void OSLShader::thread_init(KernelGlobals *kg, KernelGlobals *kernel_globals, OS
 
 	/* per thread kernel data init*/
 	kg->osl = osl_globals;
-	kg->osl->services->thread_init(kernel_globals);
+	kg->osl->services->thread_init(kernel_globals, osl_globals->ts);
 
 	OSL::ShadingSystem *ss = kg->osl->ss;
 	OSLThreadData *tdata = new OSLThreadData();
@@ -55,10 +55,12 @@ void OSLShader::thread_init(KernelGlobals *kg, KernelGlobals *kernel_globals, OS
 	memset(&tdata->globals, 0, sizeof(OSL::ShaderGlobals));
 	tdata->globals.tracedata = &tdata->tracedata;
 	tdata->globals.flipHandedness = false;
-	tdata->thread_info = ss->create_thread_info();
+	tdata->osl_thread_info = ss->create_thread_info();
 
 	for(int i = 0; i < SHADER_CONTEXT_NUM; i++)
-		tdata->context[i] = ss->get_context(tdata->thread_info);
+		tdata->context[i] = ss->get_context(tdata->osl_thread_info);
+
+	tdata->oiio_thread_info = osl_globals->ts->get_perthread_info();
 
 	kg->osl_ss = (OSLShadingSystem*)ss;
 	kg->osl_tdata = tdata;
@@ -75,7 +77,7 @@ void OSLShader::thread_free(KernelGlobals *kg)
 	for(int i = 0; i < SHADER_CONTEXT_NUM; i++)
 		ss->release_context(tdata->context[i]);
 
-	ss->destroy_thread_info(tdata->thread_info);
+	ss->destroy_thread_info(tdata->osl_thread_info);
 
 	delete tdata;
 
@@ -127,6 +129,9 @@ static void shaderdata_to_shaderglobals(KernelGlobals *kg, ShaderData *sd,
 
 	/* clear trace data */
 	tdata->tracedata.init = false;
+
+	/* used by renderservices */
+	sd->osl_globals = kg;
 }
 
 /* Surface */

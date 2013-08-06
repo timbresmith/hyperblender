@@ -127,7 +127,7 @@ void BKE_curve_editNurb_keyIndex_free(EditNurb *editnurb)
 	if (!editnurb->keyindex) {
 		return;
 	}
-	BLI_ghash_free(editnurb->keyindex, NULL, (GHashValFreeFP)MEM_freeN);
+	BLI_ghash_free(editnurb->keyindex, NULL, MEM_freeN);
 	editnurb->keyindex = NULL;
 }
 
@@ -679,6 +679,143 @@ void BKE_nurb_bezierPoints_add(Nurb *nu, int number)
 	}
 
 	nu->pntsu += number;
+}
+
+
+BezTriple *BKE_nurb_bezt_get_next(Nurb *nu, BezTriple *bezt)
+{
+	BezTriple *bezt_next;
+
+	BLI_assert(ARRAY_HAS_ITEM(bezt, nu->bezt, nu->pntsu));
+
+	if (bezt == &nu->bezt[nu->pntsu - 1]) {
+		if (nu->flagu & CU_NURB_CYCLIC) {
+			bezt_next = nu->bezt;
+		}
+		else {
+			bezt_next = NULL;
+		}
+	}
+	else {
+		bezt_next = bezt + 1;
+	}
+
+	return bezt_next;
+}
+
+BPoint *BKE_nurb_bpoint_get_next(Nurb *nu, BPoint *bp)
+{
+	BPoint *bp_next;
+
+	BLI_assert(ARRAY_HAS_ITEM(bp, nu->bp, nu->pntsu));
+
+	if (bp == &nu->bp[nu->pntsu - 1]) {
+		if (nu->flagu & CU_NURB_CYCLIC) {
+			bp_next = nu->bp;
+		}
+		else {
+			bp_next = NULL;
+		}
+	}
+	else {
+		bp_next = bp + 1;
+	}
+
+	return bp_next;
+}
+
+BezTriple *BKE_nurb_bezt_get_prev(Nurb *nu, BezTriple *bezt)
+{
+	BezTriple *bezt_prev;
+
+	BLI_assert(ARRAY_HAS_ITEM(bezt, nu->bezt, nu->pntsu));
+
+	if (bezt == nu->bezt) {
+		if (nu->flagu & CU_NURB_CYCLIC) {
+			bezt_prev = &nu->bezt[nu->pntsu - 1];
+		}
+		else {
+			bezt_prev = NULL;
+		}
+	}
+	else {
+		bezt_prev = bezt - 1;
+	}
+
+	return bezt_prev;
+}
+
+BPoint *BKE_nurb_bpoint_get_prev(Nurb *nu, BPoint *bp)
+{
+	BPoint *bp_prev;
+
+	BLI_assert(ARRAY_HAS_ITEM(bp, nu->bp, nu->pntsu));
+
+	if (bp == nu->bp) {
+		if (nu->flagu & CU_NURB_CYCLIC) {
+			bp_prev = &nu->bp[nu->pntsu - 1];
+		}
+		else {
+			bp_prev = NULL;
+		}
+	}
+	else {
+		bp_prev = bp - 1;
+	}
+
+	return bp_prev;
+}
+
+void BKE_nurb_bezt_calc_normal(struct Nurb *UNUSED(nu), struct BezTriple *bezt, float r_normal[3])
+{
+	/* calculate the axis matrix from the spline */
+	float dir_prev[3], dir_next[3];
+
+	sub_v3_v3v3(dir_prev, bezt->vec[0], bezt->vec[1]);
+	sub_v3_v3v3(dir_next, bezt->vec[1], bezt->vec[2]);
+
+	normalize_v3(dir_prev);
+	normalize_v3(dir_next);
+
+	add_v3_v3v3(r_normal, dir_prev, dir_next);
+	normalize_v3(r_normal);
+}
+
+void BKE_nurb_bezt_calc_plane(struct Nurb *nu, struct BezTriple *bezt, float r_plane[3])
+{
+	float dir_prev[3], dir_next[3];
+
+	sub_v3_v3v3(dir_prev, bezt->vec[0], bezt->vec[1]);
+	sub_v3_v3v3(dir_next, bezt->vec[1], bezt->vec[2]);
+
+	normalize_v3(dir_prev);
+	normalize_v3(dir_next);
+
+	cross_v3_v3v3(r_plane, dir_prev, dir_next);
+	if (normalize_v3(r_plane) < FLT_EPSILON) {
+		BezTriple *bezt_prev = BKE_nurb_bezt_get_prev(nu, bezt);
+		BezTriple *bezt_next = BKE_nurb_bezt_get_next(nu, bezt);
+
+		if (bezt_prev) {
+			sub_v3_v3v3(dir_prev, bezt_prev->vec[1], bezt->vec[1]);
+			normalize_v3(dir_prev);
+		}
+		if (bezt_next) {
+			sub_v3_v3v3(dir_next, bezt->vec[1], bezt_next->vec[1]);
+			normalize_v3(dir_next);
+		}
+		cross_v3_v3v3(r_plane, dir_prev, dir_next);
+	}
+
+	/* matches with bones more closely */
+	{
+		float dir_mid[3], tvec[3];
+		add_v3_v3v3(dir_mid, dir_prev, dir_next);
+		cross_v3_v3v3(tvec, r_plane, dir_mid);
+		copy_v3_v3(r_plane, tvec);
+	}
+
+	normalize_v3(r_plane);
 }
 
 /* ~~~~~~~~~~~~~~~~~~~~Non Uniform Rational B Spline calculations ~~~~~~~~~~~ */
@@ -1328,7 +1465,7 @@ float *BKE_curve_surf_make_orco(Object *ob)
 /* NOTE: This routine is tied to the order of vertex
  * built by displist and as passed to the renderer.
  */
-float *BKE_curve_make_orco(Scene *scene, Object *ob)
+float *BKE_curve_make_orco(Scene *scene, Object *ob, int *r_numVerts)
 {
 	Curve *cu = ob->data;
 	DispList *dl;
@@ -1357,6 +1494,9 @@ float *BKE_curve_make_orco(Scene *scene, Object *ob)
 				numVerts += dl->parts * dl->nr;
 		}
 	}
+
+	if (r_numVerts)
+		*r_numVerts = numVerts;
 
 	fp = coord_array = MEM_mallocN(3 * sizeof(float) * numVerts, "cu_orco");
 	for (dl = disp.first; dl; dl = dl->next) {
@@ -1900,7 +2040,7 @@ static void bevel_list_flip_tangents(BevList *bl)
 
 	nr = bl->nr;
 	while (nr--) {
-		if (RAD2DEGF(angle_v2v2(bevp0->tan, bevp1->tan)) > 90.0f)
+		if (angle_normalized_v3v3(bevp0->tan, bevp1->tan) > DEG2RADF(90.0f))
 			negate_v3(bevp1->tan);
 
 		bevp0 = bevp1;
@@ -2170,6 +2310,7 @@ static void make_bevel_list_3D(BevList *bl, int smooth_iter, int twist_mode)
 			break;
 		default: /* CU_TWIST_Z_UP default, pre 2.49c */
 			make_bevel_list_3D_zup(bl);
+			break;
 	}
 
 	if (bl->poly == -1) /* check its not cyclic */
@@ -2320,6 +2461,7 @@ void BKE_curve_bevelList_make(Object *ob)
 			bl = MEM_callocN(sizeof(BevList) + 1 * sizeof(BevPoint), "makeBevelList1");
 			BLI_addtail(&(cu->bev), bl);
 			bl->nr = 0;
+			bl->charidx = nu->charidx;
 		}
 		else {
 			if (G.is_rendering && cu->resolu_ren != 0)
@@ -2332,10 +2474,10 @@ void BKE_curve_bevelList_make(Object *ob)
 				bl = MEM_callocN(sizeof(BevList) + len * sizeof(BevPoint), "makeBevelList2");
 				BLI_addtail(&(cu->bev), bl);
 
-				if (nu->flagu & CU_NURB_CYCLIC) bl->poly = 0;
-				else bl->poly = -1;
+				bl->poly = (nu->flagu & CU_NURB_CYCLIC) ? 0 : -1;
 				bl->nr = len;
 				bl->dupe_nr = 0;
+				bl->charidx = nu->charidx;
 				bevp = (BevPoint *)(bl + 1);
 				bp = nu->bp;
 
@@ -2355,8 +2497,8 @@ void BKE_curve_bevelList_make(Object *ob)
 				bl = MEM_callocN(sizeof(BevList) + len * sizeof(BevPoint), "makeBevelBPoints");
 				BLI_addtail(&(cu->bev), bl);
 
-				if (nu->flagu & CU_NURB_CYCLIC) bl->poly = 0;
-				else bl->poly = -1;
+				bl->poly = (nu->flagu & CU_NURB_CYCLIC) ? 0 : -1;
+				bl->charidx = nu->charidx;
 				bevp = (BevPoint *)(bl + 1);
 
 				a = nu->pntsu - 1;
@@ -2442,8 +2584,8 @@ void BKE_curve_bevelList_make(Object *ob)
 					BLI_addtail(&(cu->bev), bl);
 					bl->nr = len;
 					bl->dupe_nr = 0;
-					if (nu->flagu & CU_NURB_CYCLIC) bl->poly = 0;
-					else bl->poly = -1;
+					bl->poly = (nu->flagu & CU_NURB_CYCLIC) ? 0 : -1;
+					bl->charidx = nu->charidx;
 					bevp = (BevPoint *)(bl + 1);
 
 					BKE_nurb_makeCurve(nu, &bevp->vec[0],
@@ -2569,9 +2711,11 @@ void BKE_curve_bevelList_make(Object *ob)
 			bl = sd->bl;     /* is bl a hole? */
 			sd1 = sortdata + (a - 1);
 			for (b = a - 1; b >= 0; b--, sd1--) { /* all polys to the left */
-				if (bevelinside(sd1->bl, bl)) {
-					bl->hole = 1 - sd1->bl->hole;
-					break;
+				if (sd1->bl->charidx == bl->charidx) { /* for text, only check matching char */
+					if (bevelinside(sd1->bl, bl)) {
+						bl->hole = 1 - sd1->bl->hole;
+						break;
+					}
 				}
 			}
 		}

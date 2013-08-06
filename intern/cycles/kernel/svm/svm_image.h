@@ -45,7 +45,7 @@ __device_inline int svm_image_texture_wrap_clamp(int x, int width)
 
 __device_inline float svm_image_texture_frac(float x, int *ix)
 {
-	int i = (int)x - ((x < 0.0f)? 1: 0);
+	int i = float_to_int(x) - ((x < 0.0f)? 1: 0);
 	*ix = i;
 	return x - (float)i;
 }
@@ -93,6 +93,12 @@ __device float4 svm_image_texture(KernelGlobals *kg, int id, float x, float y, u
 		r.x *= invw;
 		r.y *= invw;
 		r.z *= invw;
+
+		if(id >= TEX_NUM_FLOAT_IMAGES) {
+			r.x = min(r.x, 1.0f);
+			r.y = min(r.y, 1.0f);
+			r.z = min(r.z, 1.0f);
+		}
 	}
 
 	if(srgb) {
@@ -234,6 +240,12 @@ __device float4 svm_image_texture(KernelGlobals *kg, int id, float x, float y, u
 		r.x *= invw;
 		r.y *= invw;
 		r.z *= invw;
+
+		if(id >= TEX_NUM_FLOAT_IMAGES) {
+			r.x = min(r.x, 1.0f);
+			r.y = min(r.y, 1.0f);
+			r.z = min(r.z, 1.0f);
+		}
 	}
 
 	if(srgb) {

@@ -55,7 +55,6 @@
 #include "RNA_define.h"
 
 #include "BIF_gl.h"
-/* TODO: remove once projectf goes away */
 #include "BIF_glutil.h"
 
 #include "RE_shader_ext.h"
@@ -64,7 +63,7 @@
 #include "ED_view3d.h"
 #include "ED_screen.h"
 
-#include "BLO_sys_types.h"
+#include "BLI_sys_types.h"
 #include "ED_mesh.h" /* for face mask functions */
 
 #include "WM_api.h"
@@ -145,19 +144,6 @@ void paint_calc_redraw_planes(float planes[4][4],
 	mul_m4_fl(planes, -1.0f);
 }
 
-/* convert a point in model coordinates to 2D screen coordinates */
-/* TODO: can be deleted once all calls are replaced with
- * view3d_project_float() */
-void projectf(bglMats *mats, const float v[3], float p[2])
-{
-	double ux, uy, uz;
-
-	gluProject(v[0], v[1], v[2], mats->modelview, mats->projection,
-	           (GLint *)mats->viewport, &ux, &uy, &uz);
-	p[0] = ux;
-	p[1] = uy;
-}
-
 float paint_calc_object_space_radius(ViewContext *vc, const float center[3],
                                      float pixel_radius)
 {
@@ -179,16 +165,13 @@ float paint_calc_object_space_radius(ViewContext *vc, const float center[3],
 
 float paint_get_tex_pixel(MTex *mtex, float u, float v, struct ImagePool *pool)
 {
-	TexResult texres = {0};
+	float intensity, rgba[4];
 	float co[3] = {u, v, 0.0f};
-	int hasrgb;
 
-	hasrgb = multitex_ext(mtex->tex, co, NULL, NULL, 0, &texres, pool);
+	externtex(mtex, co, &intensity,
+		                   rgba, rgba + 1, rgba + 2, rgba + 3, 0, pool);
 
-	if (hasrgb & TEX_RGB)
-		texres.tin = rgb_to_grayscale(&texres.tr) * texres.ta;
-
-	return texres.tin;
+	return intensity;
 }
 
 void paint_get_tex_pixel_col(MTex *mtex, float u, float v, float rgba[4], struct ImagePool *pool)
@@ -350,7 +333,7 @@ int imapaint_pick_face(ViewContext *vc, const int mval[2], unsigned int *index, 
 	/* sample only on the exact position */
 	*index = view3d_sample_backbuf(vc, mval[0], mval[1]);
 
-	if ((*index) <= 0 || (*index) > (unsigned int)totface) {
+	if ((*index) == 0 || (*index) > (unsigned int)totface) {
 		return 0;
 	}
 
@@ -448,8 +431,9 @@ void PAINT_OT_face_select_linked(wmOperatorType *ot)
 
 static int paint_select_linked_pick_invoke(bContext *C, wmOperator *op, const wmEvent *event)
 {
-	int mode = RNA_boolean_get(op->ptr, "extend") ? 1 : 0;
-	paintface_select_linked(C, CTX_data_active_object(C), event->mval, mode);
+	const bool select = !RNA_boolean_get(op->ptr, "deselect");
+	view3d_operator_needs_opengl(C);
+	paintface_select_linked(C, CTX_data_active_object(C), event->mval, select);
 	ED_region_tag_redraw(CTX_wm_region(C));
 	return OPERATOR_FINISHED;
 }
@@ -465,7 +449,7 @@ void PAINT_OT_face_select_linked_pick(wmOperatorType *ot)
 
 	ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
 
-	RNA_def_boolean(ot->srna, "extend", 0, "Extend", "Extend the existing selection");
+	RNA_def_boolean(ot->srna, "deselect", 0, "Deselect", "Deselect rather than select items");
 }
 
 

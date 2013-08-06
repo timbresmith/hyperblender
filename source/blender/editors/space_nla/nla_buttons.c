@@ -42,7 +42,6 @@
 
 #include "BLI_math.h"
 #include "BLI_blenlib.h"
-#include "BLI_rand.h"
 
 #include "BLF_translation.h"
 
@@ -126,9 +125,8 @@ static int nla_panel_context(const bContext *C, PointerRNA *adt_ptr, PointerRNA 
 				}
 				
 				found = 1;
+				break;
 			}
-			break;
-				
 			case ANIMTYPE_SCENE:    /* Top-Level Widgets doubling up as datablocks */
 			case ANIMTYPE_OBJECT:
 			case ANIMTYPE_DSMAT:    /* Datablock AnimData Expanders */
@@ -168,8 +166,8 @@ static int nla_panel_context(const bContext *C, PointerRNA *adt_ptr, PointerRNA 
 					 */
 					found = -1;
 				}
+				break;
 			}
-			break;
 		}
 		
 		if (found > 0)
@@ -410,7 +408,11 @@ static void nla_panel_actclip(const bContext *C, Panel *pa)
 	uiItemL(column, IFACE_("Action Extents:"), ICON_NONE);
 	uiItemR(column, &strip_ptr, "action_frame_start", 0, IFACE_("Start Frame"), ICON_NONE);
 	uiItemR(column, &strip_ptr, "action_frame_end", 0, IFACE_("End Frame"), ICON_NONE);
-	uiItemO(column, NULL, ICON_NONE, "NLA_OT_action_sync_length");
+	
+	// XXX: this layout may actually be too abstract and confusing, and may be better using standard column layout
+	row = uiLayoutRow(layout, FALSE);
+	uiItemR(row, &strip_ptr, "use_sync_length", 0, IFACE_("Sync Length"), ICON_NONE);
+	uiItemO(row, IFACE_("Now"), ICON_FILE_REFRESH, "NLA_OT_action_sync_length");
 		
 	/* action usage */
 	column = uiLayoutColumn(layout, TRUE);
@@ -550,7 +552,7 @@ void nla_buttons_register(ARegionType *art)
 	BLI_addtail(&art->paneltypes, pt);
 }
 
-static int nla_properties(bContext *C, wmOperator *UNUSED(op))
+static int nla_properties_toggle_exec(bContext *C, wmOperator *UNUSED(op))
 {
 	ScrArea *sa = CTX_wm_area(C);
 	ARegion *ar = nla_has_buttons_region(sa);
@@ -567,7 +569,7 @@ void NLA_OT_properties(wmOperatorType *ot)
 	ot->idname = "NLA_OT_properties";
 	ot->description = "Toggle display properties panel";
 	
-	ot->exec = nla_properties;
+	ot->exec = nla_properties_toggle_exec;
 	ot->poll = ED_operator_nla_active;
 
 	/* flags */

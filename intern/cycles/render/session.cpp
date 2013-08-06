@@ -22,6 +22,7 @@
 #include "buffers.h"
 #include "camera.h"
 #include "device.h"
+#include "integrator.h"
 #include "scene.h"
 #include "session.h"
 
@@ -719,11 +720,25 @@ void Session::update_scene()
 	Camera *cam = scene->camera;
 	int width = tile_manager.state.buffer.full_width;
 	int height = tile_manager.state.buffer.full_height;
+	int resolution = tile_manager.state.resolution_divider;
 
 	if(width != cam->width || height != cam->height) {
 		cam->width = width;
 		cam->height = height;
+		cam->resolution = resolution;
 		cam->tag_update();
+	}
+
+	/* number of samples is needed by multi jittered sampling pattern */
+	Integrator *integrator = scene->integrator;
+
+	if(integrator->sampling_pattern == SAMPLING_PATTERN_CMJ) {
+		int aa_samples = tile_manager.num_samples;
+
+		if(aa_samples != integrator->aa_samples) {
+			integrator->aa_samples = aa_samples;
+			integrator->tag_update(scene);
+		}
 	}
 
 	/* update scene */
@@ -771,17 +786,21 @@ void Session::update_status_time(bool show_pause, bool show_done)
 			substatus += string_printf(", Sample %d/%d", sample, num_samples);
 		}
 	}
-	else if(tile_manager.num_samples == INT_MAX)
+	else if(tile_manager.num_samples == USHRT_MAX)
 		substatus = string_printf("Path Tracing Sample %d", sample+1);
 	else
 		substatus = string_printf("Path Tracing Sample %d/%d", sample+1, tile_manager.num_samples);
 	
-	if(show_pause)
+	if(show_pause) {
 		status = "Paused";
-	else if(show_done)
+	}
+	else if(show_done) {
 		status = "Done";
-	else
-		status = "Rendering";
+	}
+	else {
+		status = substatus;
+		substatus = "";
+	}
 
 	progress.set_status(status, substatus);
 
@@ -829,7 +848,6 @@ void Session::tonemap()
 	task.rgba = display->rgba.device_pointer;
 	task.buffer = buffers->buffer.device_pointer;
 	task.sample = tile_manager.state.sample;
-	task.resolution = tile_manager.state.resolution_divider;
 	tile_manager.state.buffer.get_offset_stride(task.offset, task.stride);
 
 	if(task.w > 0 && task.h > 0) {

@@ -36,12 +36,17 @@
 extern "C" {
 #endif  /* __cplusplus */
 
-struct wmWindow;
 struct ARegion;
 struct bScreen;
+struct wmWindow;
+struct wmWindowManager;
 
 // special swapbuffers, that takes care of which area (viewport) needs to be swapped
 void	BL_SwapBuffers(struct wmWindow *win);
+void	BL_SetSwapInterval(struct wmWindow *win, int interval);
+int		BL_GetSwapInterval(struct wmWindow *win);
+
+void	BL_MakeDrawable(struct wmWindowManager *wm, struct wmWindow *win);
 
 void	BL_warp_pointer(struct wmWindow *win,int x,int y);
 
