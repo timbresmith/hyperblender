@@ -54,7 +54,6 @@
 
 static void calc_moebius_transform(Object *control, Object *target, float co[3]) {
 	float off[3];
-	float imat[4];
 	float radius;
 	float leftQ[4]; 
 	float rightQ[4];
@@ -64,8 +63,7 @@ static void calc_moebius_transform(Object *control, Object *target, float co[3])
 	float distsq;
 	float h[4];
 	radius = 1.0f;
-	
-	invert_m4_m4(target->imat,target->obmat);
+
 	sub_v3_v3v3(off,target->obmat[3],control->obmat[3]); //should be control.pos - target.pos
 
 	mat4_to_quat(leftQ,control->obmat);
@@ -92,8 +90,7 @@ static void calc_moebius_transform(Object *control, Object *target, float co[3])
 	 * mat4(aa,-bb,-cc,-dd///bb,aa,dd,-cc///cc,-dd,aa,bb///dd,cc,-bb,aa);*/
         
 	mult_m4_m4m4(hRot,rightMat,leftMat);
-	mul_m4_v3(target->obmat,co);
-	sub_v3_v3(co,control->obmat[3]);
+	add_v3_v3(co,off);
 	mul_v3_fl(co,1.0f/radius);
 	distsq = dot_v3v3(co, co);
 
@@ -109,8 +106,7 @@ static void calc_moebius_transform(Object *control, Object *target, float co[3])
 	mul_m4_v4(hRot,h);
 	copy_v3_v3(co,h);
 	mul_v3_fl(co,radius/(1.0f-h[3]));
-	add_v3_v3(co,control->obmat[3]);
-	mul_m4_v3(target->imat,co);
+	sub_v3_v3(co,off);	
 }
 
 static void moebius_transform_verts(Object *control, Object *target, DerivedMesh *dm,
