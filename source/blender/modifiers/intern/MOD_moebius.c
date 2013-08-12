@@ -91,9 +91,10 @@ static void calc_moebius_transform(Object *control, Object *target, float co[3])
 	 * mat4(a,-b,-c,-d///b,a,-d,c;;;c,d,a,-b///d,-c,b,a)
 	 * mat4(aa,-bb,-cc,-dd///bb,aa,dd,-cc///cc,-dd,aa,bb///dd,cc,-bb,aa);*/
         
-	mult_m4_m4m4(hRot,rightMat,leftMat);
+	mul_m4_m4m4(hRot,rightMat,leftMat);
 	mul_m4_v3(target->obmat,co);
 	sub_v3_v3(co,control->obmat[3]);
+
 	mul_v3_fl(co,1.0f/radius);
 	distsq = dot_v3v3(co, co);
 
@@ -148,7 +149,7 @@ static void deformVerts(ModifierData *md, Object *ob,
 	/* we implement requiredDataMask but thats not really useful since
 	 * mesh_calc_modifiers pass a NULL derivedData */
 	if (dataMask)
-		dm = get_dm(ob, NULL, dm, NULL, 0);
+		dm = get_dm(ob, NULL, dm, NULL, 0,false);
 		
 	moebius_transform_verts(mmd->control, ob, derivedData, vertexCos, numVerts/*, mmd->group*/);
 	
@@ -216,8 +217,7 @@ ModifierTypeInfo modifierType_Moebius = {
 	/* type */              eModifierTypeType_OnlyDeform,
 	/* flags */             eModifierTypeFlag_AcceptsMesh |
 	                        eModifierTypeFlag_AcceptsCVs |
-							eModifierTypeFlag_SupportsEditmode,
-
+				eModifierTypeFlag_SupportsEditmode,
 	/* copyData */          copyData,
 	/* deformVerts */       deformVerts,
 	/* deformMatrices */    NULL,
