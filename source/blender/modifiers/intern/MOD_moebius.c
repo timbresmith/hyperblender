@@ -53,7 +53,6 @@
 
 
 static void calc_moebius_transform(Object *control, Object *target, float co[3]) {
-	float off[3];
 	float imat[4];
 	float radius;
 	float leftQ[4]; 
@@ -66,7 +65,6 @@ static void calc_moebius_transform(Object *control, Object *target, float co[3])
 	radius = 1.0f;
 	
 	invert_m4_m4(target->imat,target->obmat);
-	sub_v3_v3v3(off,target->obmat[3],control->obmat[3]); //should be control.pos - target.pos
 
 	mat4_to_quat(leftQ,control->obmat);
 	mat4_to_quat(rightQ,control->obmat);
@@ -86,21 +84,13 @@ static void calc_moebius_transform(Object *control, Object *target, float co[3])
 	rightMat[1][2] = rightMat[3][0] = rightQ[3];
 	rightMat[3][1] = rightMat[2][0] = rightQ[2];
 	rightMat[1][0] = rightMat[2][3] = rightQ[1];
-	
-	/* quick notes from GLSL implementation
-	 * mat4(a,-b,-c,-d///b,a,-d,c;;;c,d,a,-b///d,-c,b,a)
-	 * mat4(aa,-bb,-cc,-dd///bb,aa,dd,-cc///cc,-dd,aa,bb///dd,cc,-bb,aa);*/
-        
+	        
 	mul_m4_m4m4(hRot,rightMat,leftMat);
 	mul_m4_v3(target->obmat,co);
 	sub_v3_v3(co,control->obmat[3]);
 
 	mul_v3_fl(co,1.0f/radius);
 	distsq = dot_v3v3(co, co);
-
-	//distsq = len_manhattan_v3(co)*len_manhattan_v3(co); // manhattan distance
-	//distsq = pow(co[0],4)+pow(co[1],4)+pow(co[2],4);  // 4th order minkowski distance (saw this on wikipedia)
-	//distsq = sqrt(dist);
 
 	mul_v3_v3fl(h, co, 2);
 
