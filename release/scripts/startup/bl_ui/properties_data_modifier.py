@@ -735,8 +735,12 @@ class DATA_PT_modifiers(ModifierButtonsPanel, Panel):
         split = layout.split()
 
         col = split.column()
-        col.label(text="Object:")
+        col.label(text="Control:")
         col.prop(md, "control", text="")
+        
+        col = split.column()
+        col.label(text="Options:")
+        col.prop(md, "localize", text="Localize Transformed Origin")
         
     def SMOOTH(self, layout, ob, md):
         split = layout.split(percentage=0.25)

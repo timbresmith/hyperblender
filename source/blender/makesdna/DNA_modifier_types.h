@@ -784,7 +784,14 @@ typedef struct ScrewModifierData {
 typedef struct MoebiusModifierData {
 	ModifierData modifier;
 	struct Object *control;
+	int flags;
+	int pad;
 } MoebiusModifierData;
+
+typedef enum MoebiusModifierFlags{
+	eMoebiusModifierFlag_localize = (1<<0)
+} MoebiusModifierFlags;
+
 
 typedef struct OceanModifierData {
 	ModifierData modifier;

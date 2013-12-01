@@ -94,6 +94,7 @@ EnumPropertyItem modifier_type_items[] = {
 	{eModifierType_Smooth, "SMOOTH", ICON_MOD_SMOOTH, "Smooth", ""},
 	{eModifierType_Warp, "WARP", ICON_MOD_WARP, "Warp", ""},
 	{eModifierType_Wave, "WAVE", ICON_MOD_WAVE, "Wave", ""},
+	{eModifierType_Moebius, "MOEBIUS", ICON_MOD_PHYSICS, "Moebius", ""},
 	{0, "", 0, N_("Simulate"), ""},
 	{eModifierType_Cloth, "CLOTH", ICON_MOD_CLOTH, "Cloth", ""},
 	{eModifierType_Collision, "COLLISION", ICON_MOD_PHYSICS, "Collision", ""},
@@ -106,7 +107,6 @@ EnumPropertyItem modifier_type_items[] = {
 	{eModifierType_Smoke, "SMOKE", ICON_MOD_SMOKE, "Smoke", ""},
 	{eModifierType_Softbody, "SOFT_BODY", ICON_MOD_SOFT, "Soft Body", ""},
 	{eModifierType_Surface, "SURFACE", ICON_MOD_PHYSICS, "Surface", ""},
-	{eModifierType_Moebius, "MOEBIUS", ICON_MOD_PHYSICS, "Moebius", ""},
 	{0, NULL, 0, NULL, NULL}
 };
 
@@ -2267,6 +2267,12 @@ static void rna_def_modifier_moebius(BlenderRNA *brna)
 	RNA_def_property_ui_text(prop, "Control Object", "Object that defines rotation.");
 	RNA_def_property_flag(prop, PROP_EDITABLE | PROP_ID_SELF_CHECK);
 	RNA_def_property_update(prop, 0, "rna_Modifier_dependency_update");
+	
+	prop = RNA_def_property(srna, "localize", PROP_BOOLEAN, PROP_NONE);
+	RNA_def_property_boolean_sdna(prop, NULL, "flags", eMoebiusModifierFlag_localize);
+	RNA_def_property_ui_text(prop, "Localize", "Subtract moebius transformed local origin from deformed coordinates.");
+	RNA_def_property_update(prop, 0, "rna_Modifier_update");
+
 }
 
 static void rna_def_modifier_dynamic_paint(BlenderRNA *brna)

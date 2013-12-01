@@ -115,12 +115,21 @@ static void calc_moebius_transform(Object *control, Object *target, float co[3])
 }
 
 static void moebius_transform_verts(Object *control, Object *target, DerivedMesh *dm,
-                          float (*vertexCos)[3], int numVerts)
+                          float (*vertexCos)[3], int numVerts, bool relocalize)
 {
+	float transformedOrigin[3];
 	int a;
+	if(relocalize) {
+		zero_v3(transformedOrigin);
+		calc_moebius_transform(control, target, transformedOrigin);
+	}
+
 	for (a = 0; a < numVerts; a++) {
 		calc_moebius_transform(control, target, vertexCos[a]);
-	}
+		if(relocalize) {
+			sub_v3_v3(vertexCos[a],transformedOrigin);
+		}
+	}		
 }
 
 
@@ -151,7 +160,7 @@ static void deformVerts(ModifierData *md, Object *ob,
 	if (dataMask)
 		dm = get_dm(ob, NULL, dm, NULL, 0,false);
 		
-	moebius_transform_verts(mmd->control, ob, derivedData, vertexCos, numVerts/*, mmd->group*/);
+	moebius_transform_verts(mmd->control, ob, derivedData, vertexCos, numVerts, mmd->flags & eMoebiusModifierFlag_localize/*, mmd->group*/);
 	
 	if (dm != derivedData)
 		dm->release(dm);
@@ -183,6 +192,7 @@ static void copyData(ModifierData *md, ModifierData *target)
 	MoebiusModifierData *tsmd = (MoebiusModifierData *)target;
 
 	tsmd->control  = smd->control;
+	tsmd->flags  = smd->flags;
 }
 
 static void foreachObjectLink(ModifierData *md, Object *ob,
@@ -217,7 +227,7 @@ ModifierTypeInfo modifierType_Moebius = {
 	/* type */              eModifierTypeType_OnlyDeform,
 	/* flags */             eModifierTypeFlag_AcceptsMesh |
 	                        eModifierTypeFlag_AcceptsCVs |
-				eModifierTypeFlag_SupportsEditmode,
+							eModifierTypeFlag_SupportsEditmode,
 	/* copyData */          copyData,
 	/* deformVerts */       deformVerts,
 	/* deformMatrices */    NULL,
