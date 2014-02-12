@@ -2264,7 +2264,12 @@ static void rna_def_modifier_moebius(BlenderRNA *brna)
 	RNA_def_struct_ui_icon(srna, ICON_MOD_PHYSICS);
 	
 	prop = RNA_def_property(srna, "control", PROP_POINTER, PROP_NONE);
-	RNA_def_property_ui_text(prop, "Control Object", "Object that defines rotation.");
+	RNA_def_property_ui_text(prop, "Control Object", "Object whose quaternion defines the moebius transformation.");
+	RNA_def_property_flag(prop, PROP_EDITABLE | PROP_ID_SELF_CHECK);
+	RNA_def_property_update(prop, 0, "rna_Modifier_dependency_update");
+
+	prop = RNA_def_property(srna, "origin", PROP_POINTER, PROP_NONE);
+	RNA_def_property_ui_text(prop, "Origin Object", "Object that defines origin.");
 	RNA_def_property_flag(prop, PROP_EDITABLE | PROP_ID_SELF_CHECK);
 	RNA_def_property_update(prop, 0, "rna_Modifier_dependency_update");
 	
@@ -2272,6 +2277,14 @@ static void rna_def_modifier_moebius(BlenderRNA *brna)
 	RNA_def_property_boolean_sdna(prop, NULL, "flags", eMoebiusModifierFlag_localize);
 	RNA_def_property_ui_text(prop, "Localize", "Subtract moebius transformed local origin from deformed coordinates.");
 	RNA_def_property_update(prop, 0, "rna_Modifier_update");
+	
+	prop = RNA_def_property(srna, "norm_power", PROP_FLOAT, PROP_NONE);
+	RNA_def_property_float_sdna(prop, NULL, "norm_power");
+	RNA_def_property_range(prop, -100, 100);
+	RNA_def_property_ui_range(prop, -100, 100, 0.1, 2);
+	RNA_def_property_ui_text(prop, "Norm Power", "p value of the norm used.");
+	RNA_def_property_update(prop, 0, "rna_Modifier_update");
+
 
 }
 

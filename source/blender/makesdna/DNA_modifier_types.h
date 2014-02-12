@@ -784,8 +784,11 @@ typedef struct ScrewModifierData {
 typedef struct MoebiusModifierData {
 	ModifierData modifier;
 	struct Object *control;
+	struct Object *origin;
+	float norm_power;
 	int flags;
-	int pad;
+	
+	char pad[8];
 } MoebiusModifierData;
 
 typedef enum MoebiusModifierFlags{

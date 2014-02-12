@@ -52,17 +52,42 @@
 #include "depsgraph_private.h"
 
 
-static void calc_moebius_transform(Object *control, Object *target, float co[3]) {
-	float imat[4];
+static void calc_moebius_transform(float hRot[4][4], float co[3], float p) {
+	float norm;
+	float h[4];
 	float radius;
+	int i;
+	float eps;
+	eps = 0.0000000000000001;
+	
+	radius = 1.0f;
+	
+	mul_v3_fl(co,1.0f/radius);
+	norm = pow(co[0],p) + pow(co[1],p) + pow(co[2],p);
+
+	mul_v3_v3fl(h, co, 2);
+
+	h[3] = norm-1.0f;
+
+	mul_v4_fl(h,1.0f/max_ff(1.0f+norm,eps));
+	mul_m4_v4(hRot,h);
+	copy_v3_v3(co,h);
+	mul_v3_fl(co,radius/max_ff(1.0f-h[3],eps));
+}
+
+static void moebius_transform_verts(Object *control, Object *originObject, Object *target, DerivedMesh *dm,
+                          float (*vertexCos)[3], int numVerts, bool relocalize, float norm_power)
+{
+	float imat[4];
 	float leftQ[4]; 
 	float rightQ[4];
 	float hRot[4][4];
 	float leftMat[4][4];
 	float rightMat[4][4];
-	float distsq;
-	float h[4];
-	radius = 1.0f;
+
+	float origin[3];
+	float transformedTargetPosition[3];
+	int a;
 	
 	invert_m4_m4(target->imat,target->obmat);
 
@@ -86,38 +111,28 @@ static void calc_moebius_transform(Object *control, Object *target, float co[3])
 	rightMat[1][0] = rightMat[2][3] = rightQ[1];
 	        
 	mul_m4_m4m4(hRot,rightMat,leftMat);
-	mul_m4_v3(target->obmat,co);
-	sub_v3_v3(co,control->obmat[3]);
-
-	mul_v3_fl(co,1.0f/radius);
-	distsq = dot_v3v3(co, co);
-
-	mul_v3_v3fl(h, co, 2);
-
-	h[3] = distsq-1.0f;
-
-	mul_v4_fl(h,1.0f/(1.0f+distsq));
-	mul_m4_v4(hRot,h);
-	copy_v3_v3(co,h);
-	mul_v3_fl(co,radius/(1.0f-h[3]));
-	add_v3_v3(co,control->obmat[3]);
-	mul_m4_v3(target->imat,co);
-}
-
-static void moebius_transform_verts(Object *control, Object *target, DerivedMesh *dm,
-                          float (*vertexCos)[3], int numVerts, bool relocalize)
-{
-	float transformedOrigin[3];
-	int a;
+	
 	if(relocalize) {
-		zero_v3(transformedOrigin);
-		calc_moebius_transform(control, target, transformedOrigin);
+		zero_v3(transformedTargetPosition);
+		calc_moebius_transform(hRot, transformedTargetPosition, norm_power);
 	}
-
+	
+	if(originObject != NULL) {
+		copy_v3_v3(origin,originObject->obmat[3]);
+	} else {
+		copy_v3_v3(origin,control->obmat[3]);
+	}
 	for (a = 0; a < numVerts; a++) {
-		calc_moebius_transform(control, target, vertexCos[a]);
+		mul_m4_v3(target->obmat,vertexCos[a]);
+		sub_v3_v3(vertexCos[a],origin);
+
+		calc_moebius_transform(hRot, vertexCos[a], norm_power);
+		
+		add_v3_v3(vertexCos[a],origin);
+		mul_m4_v3(target->imat,vertexCos[a]);
+
 		if(relocalize) {
-			sub_v3_v3(vertexCos[a],transformedOrigin);
+			sub_v3_v3(vertexCos[a],transformedTargetPosition);
 		}
 	}		
 }
@@ -150,7 +165,7 @@ static void deformVerts(ModifierData *md, Object *ob,
 	if (dataMask)
 		dm = get_dm(ob, NULL, dm, NULL, 0,false);
 		
-	moebius_transform_verts(mmd->control, ob, derivedData, vertexCos, numVerts, mmd->flags & eMoebiusModifierFlag_localize/*, mmd->group*/);
+	moebius_transform_verts(mmd->control,mmd->origin, ob, derivedData, vertexCos, numVerts, mmd->flags & eMoebiusModifierFlag_localize, mmd->norm_power);
 	
 	if (dm != derivedData)
 		dm->release(dm);
@@ -182,7 +197,9 @@ static void copyData(ModifierData *md, ModifierData *target)
 	MoebiusModifierData *tsmd = (MoebiusModifierData *)target;
 
 	tsmd->control  = smd->control;
+	tsmd->origin  = smd->origin;
 	tsmd->flags  = smd->flags;
+	tsmd->norm_power = smd->norm_power;
 }
 
 static void foreachObjectLink(ModifierData *md, Object *ob,
@@ -190,6 +207,7 @@ static void foreachObjectLink(ModifierData *md, Object *ob,
 {
 	MoebiusModifierData *mmd  = (MoebiusModifierData *)md;
 	walk(userData, ob, &mmd->control);
+	walk(userData, ob, &mmd->origin);
 }
 
 static int isDisabled(ModifierData *md, int UNUSED(userRenderParams))
@@ -208,6 +226,8 @@ static void updateDepgraph(ModifierData *md, DagForest *forest,
 
 	if (smd->control)
 		dag_add_relation(forest, dag_get_node(forest, smd->control), obNode, DAG_RL_OB_DATA, "Moebius Transformation Modifier");
+	if (smd->origin)
+		dag_add_relation(forest, dag_get_node(forest, smd->origin), obNode, DAG_RL_OB_DATA, "Moebius Transformation Modifier");
 }
 
 ModifierTypeInfo modifierType_Moebius = {
