@@ -18,6 +18,8 @@
 # All rights reserved.
 # ***** END GPL LICENSE BLOCK *****
 
+set(CMAKE_CXX_STANDARD 17)
+
 set(INC
   .
   intern
@@ -31,6 +33,7 @@ set(INC
   ../render/extern/include
   ../../../intern/eigen
   ../../../intern/guardedalloc
+  ../../../extern/gal
 )
 
 set(INC_SYS
@@ -67,7 +70,7 @@ set(SRC
   intern/MOD_meshdeform.c
   intern/MOD_meshsequencecache.c
   intern/MOD_mirror.c
-  intern/MOD_moebius.c
+  intern/MOD_moebius.cpp
   intern/MOD_multires.c
   intern/MOD_none.c
   intern/MOD_normal_edit.c
